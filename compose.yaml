@@ -1,0 +1,25 @@
+name: resultripple
+
+# FalkorDB is the authoritative connected context for ResultRipple, so its data
+# directory is a named volume and AOF is fsynced on every write. The image's own
+# run.sh appends REDIS_ARGS before --dir and --loadmodule, so persistence flags
+# belong there rather than in an overridden command.
+services:
+  falkordb:
+    image: falkordb/falkordb:6.0.2
+    restart: unless-stopped
+    environment:
+      REDIS_ARGS: "--appendonly yes --appendfsync always --appendfilename resultripple.aof --save 60 1"
+      BROWSER: "0"
+    ports:
+      - "${FALKORDB_PORT:-6379}:6379"
+    volumes:
+      - falkordb-data:/var/lib/falkordb/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  falkordb-data:
