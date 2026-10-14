@@ -519,12 +519,23 @@ class GraphClient:
     ) -> dict[str, Any]:
         """Persist one review plan version and assign it to the current reviewer.
 
+        Every existence and cardinality guard -- the case, the reviewer, the
+        complete registered scope, and the absence of a clashing plan id --
+        precedes the first write clause, so a plan is created whole or not at
+        all. A partially covered plan must never reach a reviewer.
+
         Staging does not touch the workspace context revision: planning must not
         invalidate itself.
         """
         row = self.run_one(
             """
-            MATCH (c:CorrectionCase {id:$case_id}), (reviewer:Person {id:$reviewer_id})
+            MATCH (c:CorrectionCase {id:$case_id}),
+                  (reviewer:Person {id:$reviewer_id}),
+                  (occ:Occurrence)
+            WHERE occ.id IN $occurrence_ids
+            OPTIONAL MATCH (clash:ReviewPlan {id:$plan_id})
+            WITH c, reviewer, collect(DISTINCT occ) AS covered, count(clash) AS clashes
+            WHERE size(covered) = $expected_scope_size AND clashes = 0
             CREATE (p:ReviewPlan {
                 id:$plan_id, version:$version, status:'AWAITING_REVIEW',
                 raw_request:$raw_request, goal:$goal,
@@ -538,13 +549,11 @@ class GraphClient:
             })
             CREATE (p)-[:FOR_CASE]->(c)
             CREATE (p)-[:ASSIGNED_TO_REVIEWER]->(reviewer)
-            WITH p, c
-            UNWIND $occurrence_ids AS occurrence_id
-            MATCH (occ:Occurrence {id:occurrence_id})
-            CREATE (p)-[:COVERS]->(occ)
-            WITH DISTINCT p, c, count(occ) AS covered
-            WHERE covered = $expected_scope_size
             SET c.status = 'AWAITING_REVIEW'
+            WITH p, covered
+            UNWIND covered AS member
+            CREATE (p)-[:COVERS]->(member)
+            WITH DISTINCT p
             RETURN p.id AS plan_id
             """,
             {
@@ -720,11 +729,12 @@ class GraphClient:
     ) -> dict[str, Any]:
         """One guarded write publishes the whole package and moves one pointer.
 
-        The authoritative guards -- expected context revision, plan approval at
-        this exact version and fingerprint, and the expected prior release --
-        all precede the first write clause. The document set comes from the same
-        locked authoritative read that produced the plan scope; the trailing
-        count check is a consistency assertion, not a rollback.
+        Every guard -- expected context revision, plan approval at this exact
+        version and fingerprint, the owning case, the expected prior release,
+        and the complete presence of every document and occurrence in scope --
+        precedes the first write clause. A filter placed after a write is not a
+        rollback, so an absent document or occurrence must prevent the release
+        from being created at all rather than suppress its return value.
 
         It never updates a single document pointer: the current release is one
         node covering both editions, or nothing is committed at all.
@@ -732,14 +742,21 @@ class GraphClient:
         row = self.run_one(
             """
             MATCH (w:Workspace {id:$workspace_id}),
-                  (p:ReviewPlan {id:$plan_id}),
-                  (decision:Decision {id:$decision_id})
+                  (p:ReviewPlan {id:$plan_id})-[:FOR_CASE]->(c:CorrectionCase),
+                  (decision:Decision {id:$decision_id}),
+                  (doc:Document),
+                  (occ:Occurrence)
             WHERE w.context_revision = $expected_revision
               AND p.status = 'APPROVED' AND p.version = $plan_version
               AND p.execution_fingerprint = $fingerprint
+              AND doc.id IN $document_ids
+              AND occ.id IN $occurrence_ids
             OPTIONAL MATCH (w)-[pointer:CURRENT_RELEASE]->(prior:Release)
-            WITH w, p, decision, pointer, coalesce(prior.id, '') AS prior_id
+            WITH w, p, c, decision, pointer, coalesce(prior.id, '') AS prior_id,
+                 collect(DISTINCT doc) AS docs, collect(DISTINCT occ) AS occs
             WHERE prior_id = $expected_prior_release_id
+              AND size(docs) = $expected_document_count
+              AND size(occs) = $expected_occurrence_count
             DELETE pointer
             CREATE (r:Release {
                 id:$release_id, sequence:$sequence, issued_at:$issued_at,
@@ -750,20 +767,16 @@ class GraphClient:
             CREATE (r)-[:FROM_PLAN]->(p)
             CREATE (w)-[:CURRENT_RELEASE]->(r)
             SET p.status = 'ISSUED',
+                c.status = 'ISSUED',
                 decision.status = $decision_status,
                 w.context_revision = w.context_revision + 1
-            WITH w, r, p
-            UNWIND $document_ids AS document_id
-            MATCH (doc:Document {id:document_id})
-            CREATE (r)-[:INCLUDES_DOCUMENT]->(doc)
-            WITH DISTINCT w, r, p, count(doc) AS included
-            WHERE included = $expected_document_count
-            MATCH (p)-[:FOR_CASE]->(c:CorrectionCase)
-            SET c.status = 'ISSUED'
-            WITH w, r, p
+            WITH w, r, docs
+            UNWIND docs AS included
+            CREATE (r)-[:INCLUDES_DOCUMENT]->(included)
+            WITH DISTINCT w, r
             UNWIND $occurrence_assertions AS entry
-            MATCH (occ:Occurrence {id: entry[0]})
-            SET occ.original_assertion = entry[1]
+            MATCH (target:Occurrence {id: entry[0]})
+            SET target.original_assertion = entry[1]
             WITH DISTINCT w, r
             RETURN r.id AS release_id, w.context_revision AS context_revision
             """,
@@ -778,6 +791,8 @@ class GraphClient:
                 "decision_status": decision_status,
                 "document_ids": sorted(document_ids),
                 "expected_document_count": len(set(document_ids)),
+                "occurrence_ids": sorted({entry[0] for entry in occurrence_assertions}),
+                "expected_occurrence_count": len({entry[0] for entry in occurrence_assertions}),
                 "occurrence_assertions": occurrence_assertions,
                 **release,
             },
