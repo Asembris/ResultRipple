@@ -1,30 +1,62 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiUnreachableError, apiBaseUrl, fetchReadiness } from "./api";
-import type { ReadinessResponse } from "./types";
+import {
+  ApiRefusal,
+  ApiUnreachableError,
+  apiBaseUrl,
+  fetchReadiness,
+  fetchSession,
+  fetchWorkspace,
+  startSession,
+} from "./api";
+import CorrectionCase from "./components/CorrectionCase";
+import PublishingDesk from "./components/PublishingDesk";
+import ReviewPane from "./components/ReviewPane";
+import type { Actor, ReadinessResponse, Workspace } from "./types";
 
-type State =
+type Load =
   | { kind: "loading" }
-  | { kind: "loaded"; readiness: ReadinessResponse }
-  | { kind: "api-error"; message: string };
+  | { kind: "ready"; workspace: Workspace }
+  | { kind: "blocked"; code: string; detail: string }
+  | { kind: "unreachable"; message: string };
 
 export default function App() {
-  const [state, setState] = useState<State>({ kind: "loading" });
+  const [state, setState] = useState<Load>({ kind: "loading" });
+  const [actor, setActor] = useState<Actor | null>(null);
+  const [readiness, setReadiness] = useState<ReadinessResponse | null>(null);
+  const [refusal, setRefusal] = useState<ApiRefusal | null>(null);
 
   const load = useCallback(async () => {
-    setState({ kind: "loading" });
     try {
-      setState({ kind: "loaded", readiness: await fetchReadiness() });
+      const [workspace, session] = await Promise.all([fetchWorkspace(), fetchSession()]);
+      setActor(session.actor);
+      setState({ kind: "ready", workspace });
     } catch (error) {
-      const message =
-        error instanceof ApiUnreachableError ? error.message : "Unexpected API failure";
-      setState({ kind: "api-error", message });
+      if (error instanceof ApiRefusal) {
+        setState({ kind: "blocked", code: error.code, detail: error.detail });
+      } else if (error instanceof ApiUnreachableError) {
+        setState({ kind: "unreachable", message: error.message });
+      } else {
+        setState({ kind: "unreachable", message: "Unexpected API failure" });
+      }
     }
+    fetchReadiness().then(setReadiness).catch(() => setReadiness(null));
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const onError = (error: unknown) => {
+    setRefusal(error instanceof ApiRefusal ? error : null);
+    if (!(error instanceof ApiRefusal)) console.error(error);
+  };
+
+  const signIn = async (personId: string) => {
+    setRefusal(null);
+    setActor(await startSession(personId));
+    await load();
+  };
 
   return (
     <main className="page">
@@ -32,94 +64,119 @@ export default function App() {
         <h1>ResultRipple</h1>
         <p className="tagline">
           When evidence behind a recommendation changes, ResultRipple finds every linked
-          report, prepares the responsible person&rsquo;s review, and issues corrected
-          editions after approval.
+          report, prepares the responsible person&rsquo;s review, and issues corrected editions
+          after approval.
         </p>
         <p className="track">Graph Hacks 2026 &middot; Track 3 &mdash; Company Brain</p>
       </header>
 
-      <section className="panel" aria-labelledby="status-heading">
-        <h2 id="status-heading">System readiness</h2>
-        {state.kind === "loading" && <p role="status">Checking backend&hellip;</p>}
-        {state.kind === "api-error" && <ApiError message={state.message} onRetry={load} />}
-        {state.kind === "loaded" && (
-          <Readiness readiness={state.readiness} onRetry={load} />
-        )}
-      </section>
+      {state.kind === "ready" && (
+        <RoleBar
+          people={state.workspace.people}
+          actor={actor}
+          reviewerId={state.workspace.decision?.current_reviewer_id ?? null}
+          onSignIn={signIn}
+        />
+      )}
+
+      {refusal && (
+        <div className="panel refusal" role="alert">
+          <h2>Action refused: {refusal.code}</h2>
+          <p>{refusal.detail}</p>
+          {Object.keys(refusal.context).length > 0 && (
+            <pre className="witness">{JSON.stringify(refusal.context, null, 2)}</pre>
+          )}
+          <button type="button" className="secondary" onClick={() => setRefusal(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {state.kind === "loading" && <p role="status">Reading current context&hellip;</p>}
+
+      {state.kind === "unreachable" && (
+        <div className="panel status status--down">
+          <h2>Backend unreachable</h2>
+          <p>{state.message}</p>
+          <p className="hint">Start the API with: uvicorn app.main:app --reload</p>
+          <button type="button" onClick={() => void load()}>Re-check</button>
+        </div>
+      )}
+
+      {state.kind === "blocked" && (
+        <div className="panel status status--down">
+          <h2>Graph-backed work unavailable</h2>
+          <p>
+            <strong>{state.code}</strong> &mdash; {state.detail}
+          </p>
+          <p className="hint">
+            Impact, review and release answers always query FalkorDB. Editions already issued
+            remain readable; new answers stop.
+          </p>
+          <button type="button" onClick={() => void load()}>Re-check</button>
+        </div>
+      )}
+
+      {state.kind === "ready" && (
+        <>
+          <PublishingDesk state={state.workspace} />
+          <CorrectionCase
+            state={state.workspace}
+            actor={actor}
+            onChange={load}
+            onError={onError}
+          />
+          <ReviewPane state={state.workspace} actor={actor} onChange={load} onError={onError} />
+        </>
+      )}
 
       <footer className="footnote">
         <p>
-          Bootstrap foundation only. No correction case, finding registry, agent, or
-          release workflow is implemented yet.
+          All organizational data is fictional demo setup. A positive check applies only to the
+          registered finding cards and the typed decision block in the named versions.
         </p>
+        {readiness && (
+          <p className="meta">
+            API {readiness.version} at {apiBaseUrl} &middot;{" "}
+            {readiness.falkordb.connected
+              ? `FalkorDB graph "${readiness.falkordb.graph}" at ${readiness.falkordb.endpoint}`
+              : `${readiness.falkordb.error_code} at ${readiness.falkordb.endpoint}`}
+          </p>
+        )}
       </footer>
     </main>
   );
 }
 
-function ApiError({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div className="status status--down">
-      <p>
-        <strong>Backend unreachable.</strong> {message}
-      </p>
-      <p className="hint">Start the API with: uvicorn app.main:app --reload</p>
-      <RetryButton onRetry={onRetry} />
-    </div>
-  );
-}
-
-function Readiness({
-  readiness,
-  onRetry,
+function RoleBar({
+  people,
+  actor,
+  reviewerId,
+  onSignIn,
 }: {
-  readiness: ReadinessResponse;
-  onRetry: () => void;
+  people: Workspace["people"];
+  actor: Actor | null;
+  reviewerId: string | null;
+  onSignIn: (personId: string) => Promise<void>;
 }) {
-  const { falkordb } = readiness;
   return (
-    <div className={`status ${readiness.ready ? "status--up" : "status--degraded"}`}>
-      <p className="verdict">
-        {readiness.ready ? "API and FalkorDB reachable" : "Graph-backed work unavailable"}
-      </p>
-      <dl>
-        <dt>API</dt>
-        <dd>
-          {readiness.service} v{readiness.version} at {apiBaseUrl}
-        </dd>
-        <dt>FalkorDB</dt>
-        <dd>
-          {falkordb.connected
-            ? `connected to graph "${falkordb.graph}" at ${falkordb.endpoint}`
-            : `${falkordb.error_code ?? "UNKNOWN"} at ${falkordb.endpoint}`}
-        </dd>
-        {falkordb.connected && falkordb.server_version && (
-          <>
-            <dt>Server</dt>
-            <dd>
-              Redis {falkordb.server_version}
-              {falkordb.latency_ms !== null && ` · probe ${falkordb.latency_ms} ms`}
-            </dd>
-          </>
-        )}
-        {!falkordb.connected && falkordb.error_detail && (
-          <>
-            <dt>Detail</dt>
-            <dd className="detail">{falkordb.error_detail}</dd>
-          </>
-        )}
-        <dt>Implemented</dt>
-        <dd>{readiness.implemented_scope.join(", ") || "none"}</dd>
-      </dl>
-      <RetryButton onRetry={onRetry} />
-    </div>
-  );
-}
-
-function RetryButton({ onRetry }: { onRetry: () => void }) {
-  return (
-    <button type="button" onClick={onRetry}>
-      Re-check
-    </button>
+    <nav className="rolebar" aria-label="Demo identities">
+      <span className="label">Signed in as</span>
+      <strong>{actor ? `${actor.display_name} (${actor.demo_role})` : "nobody"}</strong>
+      <span className="rolebar__buttons">
+        {people.map((person) => (
+          <button
+            key={person.person_id}
+            type="button"
+            className={person.person_id === actor?.person_id ? "" : "secondary"}
+            onClick={() => void onSignIn(person.person_id)}
+          >
+            {person.display_name}
+            {person.person_id === reviewerId ? " ★" : ""}
+          </button>
+        ))}
+      </span>
+      <span className="meta">&#9733; current review authority, read from the graph</span>
+    </nav>
   );
 }
