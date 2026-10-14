@@ -1,0 +1,43 @@
+# Pre-event planning notes stay local.
+/planning/
+
+# Secrets and local configuration.
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+
+# Generated runtime state: raw inputs, staged and issued editions, receipts.
+runtime/
+artifacts/
+*.rdb
+*.aof
+appendonlydir/
+
+# Editor and OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Local logs
+*.log
