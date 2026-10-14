@@ -23,10 +23,14 @@ from .config import Settings
 from .models import GraphStatus
 
 # A trivial read that still exercises the module: parse, plan, execute, return.
-# FalkorDB 6.0.2 compatibility: its compact reply encoder panics (and drops the
-# connection) when one RETURN mixes an aggregation with a NULL column across five
-# or more columns. Aggregating queries below therefore `coalesce` every nullable
-# projection. Reproduced against the pinned image; see docs/graph-model.md.
+# FalkorDB 6.0.2 compatibility, both reproduced against the pinned image:
+#  1. A non-optional relationship MATCH placed after a WHERE-filtered MATCH
+#     silently yields no rows. Guard patterns are therefore comma-joined into a
+#     single MATCH with one trailing WHERE.
+#  2. Its compact reply encoder panics (and drops the
+#     connection) when one RETURN mixes an aggregation with a NULL column across
+#     five or more columns, so aggregating queries coalesce every nullable
+#     projection. See docs/graph-model.md.
 _PROBE_QUERY = "RETURN $probe AS probe"
 _PROBE_VALUE = "resultripple"
 
@@ -394,13 +398,13 @@ class GraphClient:
         """
         row = self.run_one(
             """
-            MATCH (w:Workspace {id:$workspace_id})
+            MATCH (w:Workspace {id:$workspace_id}),
+                  (c:CorrectionCase {id:$case_id}),
+                  (target:Lane {id:$to_lane_id}),
+                  (b:Batch)-[old:ASSIGNED_TO]->(:Lane {id:$from_lane_id})
             WHERE w.context_revision = $expected_revision
-            MATCH (c:CorrectionCase {id:$case_id})
-            WHERE c.status = 'CORRECTION_PENDING'
-            MATCH (target:Lane {id:$to_lane_id})
-            MATCH (b:Batch)-[old:ASSIGNED_TO]->(:Lane {id:$from_lane_id})
-            WHERE b.id IN $batch_ids
+              AND c.status = 'CORRECTION_PENDING'
+              AND b.id IN $batch_ids
             WITH w, c, target, collect(DISTINCT b.id) AS moved, count(old) AS edge_count
             WHERE size(moved) = $expected_count AND edge_count = $expected_count
             UNWIND moved AS batch_id
@@ -520,8 +524,7 @@ class GraphClient:
         """
         row = self.run_one(
             """
-            MATCH (c:CorrectionCase {id:$case_id})
-            MATCH (reviewer:Person {id:$reviewer_id})
+            MATCH (c:CorrectionCase {id:$case_id}), (reviewer:Person {id:$reviewer_id})
             CREATE (p:ReviewPlan {
                 id:$plan_id, version:$version, status:'AWAITING_REVIEW',
                 raw_request:$raw_request, goal:$goal,
@@ -586,10 +589,9 @@ class GraphClient:
         """Record approval of one exact plan version and execution fingerprint."""
         row = self.run_one(
             """
-            MATCH (p:ReviewPlan {id:$plan_id})
+            MATCH (p:ReviewPlan {id:$plan_id})-[:ASSIGNED_TO_REVIEWER]->(reviewer:Person {id:$reviewer_id})
             WHERE p.status = 'AWAITING_REVIEW' AND p.version = $version
               AND p.execution_fingerprint = $fingerprint
-            MATCH (p)-[:ASSIGNED_TO_REVIEWER]->(reviewer:Person {id:$reviewer_id})
             SET p.status = 'APPROVED', p.approved_at = $approved_at,
                 p.approved_by = $reviewer_id,
                 p.acknowledged_alternative = $acknowledged_alternative
@@ -620,9 +622,8 @@ class GraphClient:
     ) -> dict[str, Any]:
         row = self.run_one(
             """
-            MATCH (p:ReviewPlan {id:$plan_id})
+            MATCH (p:ReviewPlan {id:$plan_id})-[:ASSIGNED_TO_REVIEWER]->(:Person {id:$reviewer_id})
             WHERE p.status = 'AWAITING_REVIEW'
-            MATCH (p)-[:ASSIGNED_TO_REVIEWER]->(:Person {id:$reviewer_id})
             SET p.status = 'REJECTED', p.invalidation_reason = $reason, p.rejected_at = $at
             WITH p
             MATCH (p)-[:FOR_CASE]->(c:CorrectionCase)
@@ -730,12 +731,12 @@ class GraphClient:
         """
         row = self.run_one(
             """
-            MATCH (w:Workspace {id:$workspace_id})
+            MATCH (w:Workspace {id:$workspace_id}),
+                  (p:ReviewPlan {id:$plan_id}),
+                  (decision:Decision {id:$decision_id})
             WHERE w.context_revision = $expected_revision
-            MATCH (p:ReviewPlan {id:$plan_id})
-            WHERE p.status = 'APPROVED' AND p.version = $plan_version
+              AND p.status = 'APPROVED' AND p.version = $plan_version
               AND p.execution_fingerprint = $fingerprint
-            MATCH (decision:Decision {id:$decision_id})
             OPTIONAL MATCH (w)-[pointer:CURRENT_RELEASE]->(prior:Release)
             WITH w, p, decision, pointer, coalesce(prior.id, '') AS prior_id
             WHERE prior_id = $expected_prior_release_id
@@ -805,11 +806,10 @@ class GraphClient:
         """Replace exactly one REVIEWED_BY edge. Operator capability only."""
         row = self.run_one(
             """
-            MATCH (w:Workspace {id:$workspace_id})
-            WHERE w.context_revision = $expected_revision
-            MATCH (next:Person {id:$to_person_id})
-            WHERE next.review_capable = true
-            MATCH (team:Team {id:$team_id})-[old:REVIEWED_BY]->(previous:Person {id:$from_person_id})
+            MATCH (w:Workspace {id:$workspace_id}),
+                  (next:Person {id:$to_person_id}),
+                  (team:Team {id:$team_id})-[old:REVIEWED_BY]->(previous:Person {id:$from_person_id})
+            WHERE w.context_revision = $expected_revision AND next.review_capable = true
             WITH w, team, previous, next, collect(old) AS authority
             WHERE size(authority) = 1
             UNWIND authority AS stale
