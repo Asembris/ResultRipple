@@ -1,4 +1,9 @@
-"""Typed response bodies for the bootstrap endpoints."""
+"""Typed request and response bodies.
+
+Request DTOs deliberately carry no actor, reviewer, scope, file path, number,
+or factual sentence. Those are resolved server-side from the signed session and
+from current FalkorDB context.
+"""
 
 from typing import Literal
 
@@ -34,5 +39,70 @@ class ReadinessResponse(BaseModel):
     service: str = "resultripple-api"
     version: str
     falkordb: GraphStatus
-    # Bootstrap carries no domain schema yet; the UI shows this honestly.
     implemented_scope: list[str] = Field(default_factory=list)
+
+
+class DemoSessionRequest(BaseModel):
+    """Choose a provisioned demo identity. The server decides its capability."""
+
+    person_id: str = Field(min_length=1, max_length=64)
+
+
+class SessionResponse(BaseModel):
+    person_id: str
+    display_name: str
+    demo_role: str
+    review_capable: bool
+
+
+class ApplyCorrectionRequest(BaseModel):
+    """The analyst confirms the source note against the batches it identifies."""
+
+    batch_ids: list[str] = Field(min_length=1, max_length=50)
+    expected_context_revision: int
+    source_confirmed: bool = False
+
+
+class StageReviewRequest(BaseModel):
+    """A typed intent frame. The raw request stays visible beside it."""
+
+    raw_request: str = Field(min_length=1, max_length=2000)
+    goal: str
+    disposition: str
+    alternative_flag: bool = False
+    note: str = Field(default="", max_length=2000)
+    # Recorded for transparency only; it can never narrow the registered scope.
+    focus_occurrence_ids: list[str] = Field(default_factory=list, max_length=20)
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+
+class ApprovalRequest(BaseModel):
+    """Approval attaches to one exact plan version and fingerprint."""
+
+    plan_version: int
+    execution_fingerprint: str = Field(min_length=16, max_length=128)
+    acknowledged_alternative: bool = False
+
+
+class RejectionRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class ReleaseRequest(BaseModel):
+    """`operation_id` makes a lost response reconcilable rather than duplicated."""
+
+    operation_id: str = Field(min_length=1, max_length=120)
+
+
+class ReviewerAssignmentRequest(BaseModel):
+    """Guarded synthetic rota change. Operator capability only."""
+
+    from_person_id: str = Field(min_length=1, max_length=64)
+    to_person_id: str = Field(min_length=1, max_length=64)
+    expected_context_revision: int
+
+
+class ErrorBody(BaseModel):
+    code: str
+    detail: str
+    context: dict = Field(default_factory=dict)
