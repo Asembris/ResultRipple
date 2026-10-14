@@ -1,8 +1,11 @@
 """Application configuration, read once from the environment."""
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
@@ -19,6 +22,18 @@ class Settings(BaseSettings):
 
     # Browser origins allowed to call the API during local development.
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
+
+    # Immutable dataset bytes. The graph stores its SHA-256; the engine and the
+    # independent verifier both read this file rather than trusting the graph.
+    dataset_csv_path: Path = BACKEND_ROOT / "data" / "batches.csv"
+
+    # Staged candidates and issued editions. Generated state, never source.
+    artifact_root: Path = BACKEND_ROOT / "runtime" / "artifacts"
+
+    # Demo sessions are signed and expiring. A real deployment overrides this.
+    session_secret: str = "resultripple-local-development-secret"
+    session_cookie: str = "rr_session"
+    session_max_age_seconds: int = 12 * 3600
 
 
 @lru_cache(maxsize=1)
