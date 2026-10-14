@@ -1,0 +1,3 @@
+# Edition bytes and the dataset hash must be identical on every checkout, so
+# line endings are normalised to LF rather than left to the platform.
+* text=auto eol=lf
