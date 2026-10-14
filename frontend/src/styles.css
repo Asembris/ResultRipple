@@ -1,0 +1,128 @@
+/* Editorial style: off-white page, ink text, one accent, clear state colours. */
+
+:root {
+  --paper: #faf8f4;
+  --ink: #1d1b18;
+  --ink-soft: #5c574f;
+  --rule: #ddd6c9;
+  --accent: #1f5f5b;
+  --up: #1f5f5b;
+  --degraded: #9a6212;
+  --down: #9b2c23;
+  font-family: "Iowan Old Style", Georgia, "Times New Roman", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.page {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 3rem 1rem 4rem;
+}
+
+.masthead h1 {
+  margin: 0;
+  font-size: 2.5rem;
+  letter-spacing: -0.02em;
+}
+
+.tagline {
+  margin: 0.5rem 0 0;
+  font-size: 1.05rem;
+  color: var(--ink-soft);
+}
+
+.track {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.panel {
+  margin-top: 2.5rem;
+  border: 1px solid var(--rule);
+  background: #fff;
+  padding: 1.25rem 1.5rem 1.5rem;
+}
+
+.panel h2 {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+}
+
+.status {
+  border-left: 4px solid var(--rule);
+  padding-left: 1rem;
+}
+
+.status--up {
+  border-left-color: var(--up);
+}
+
+.status--degraded {
+  border-left-color: var(--degraded);
+}
+
+.status--down {
+  border-left-color: var(--down);
+}
+
+.verdict {
+  margin: 0 0 0.75rem;
+  font-size: 1.15rem;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+}
+
+dt {
+  color: var(--ink-soft);
+}
+
+dd {
+  margin: 0;
+}
+
+.detail,
+.hint {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+button {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.35rem 0.9rem;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.footnote {
+  margin-top: 2rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
