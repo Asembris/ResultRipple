@@ -10,7 +10,9 @@ from __future__ import annotations
 import os
 import secrets
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 # The application reads configuration once, at import time, so the isolated
 # graph and artifact volume must be in the environment before `app` is loaded.
@@ -40,9 +42,26 @@ from app.main import app  # noqa: E402
 from scripts import seed_demo  # noqa: E402
 
 
+@contextmanager
+def _client() -> Iterator[TestClient]:
+    """One client, one event loop, for every request a test makes.
+
+    A `TestClient` used outside its context manager runs each request in its own
+    short-lived portal and tears the event loop down when that request finishes.
+    The agent-run route starts its job with `asyncio.create_task`, and a task
+    that has not yet reached its first await is destroyed with that loop --
+    permanently, so no polling budget can recover it. Holding the context open
+    keeps one loop alive across the requests of a test, which is how the real
+    server runs anyway.
+    """
+    with TestClient(app) as http:
+        yield http
+
+
 @pytest.fixture()
-def client() -> TestClient:
-    return TestClient(app)
+def client() -> Iterator[TestClient]:
+    with _client() as http:
+        yield http
 
 
 @pytest.fixture(scope="session")
@@ -72,35 +91,40 @@ def seeded(live_graph):
     }
 
 
-def session_for(person_id: str) -> TestClient:
+@contextmanager
+def session_for(person_id: str) -> Iterator[TestClient]:
     """An authenticated demo client. Capability still comes from the graph."""
-    http = TestClient(app)
-    response = http.post(
-        "/auth/demo-session",
-        json={"person_id": person_id, "passcode": TEST_PASSCODES[person_id]},
-    )
-    assert response.status_code == 200, response.text
-    return http
+    with _client() as http:
+        response = http.post(
+            "/auth/demo-session",
+            json={"person_id": person_id, "passcode": TEST_PASSCODES[person_id]},
+        )
+        assert response.status_code == 200, response.text
+        yield http
 
 
 @pytest.fixture()
-def ari(seeded) -> TestClient:
-    return session_for(domain.PERSON_ARI)
+def ari(seeded) -> Iterator[TestClient]:
+    with session_for(domain.PERSON_ARI) as http:
+        yield http
 
 
 @pytest.fixture()
-def noor(seeded) -> TestClient:
-    return session_for(domain.PERSON_NOOR)
+def noor(seeded) -> Iterator[TestClient]:
+    with session_for(domain.PERSON_NOOR) as http:
+        yield http
 
 
 @pytest.fixture()
-def sam(seeded) -> TestClient:
-    return session_for(domain.PERSON_SAM)
+def sam(seeded) -> Iterator[TestClient]:
+    with session_for(domain.PERSON_SAM) as http:
+        yield http
 
 
 @pytest.fixture()
-def operator(seeded) -> TestClient:
-    return session_for(domain.PERSON_OPERATOR)
+def operator(seeded) -> Iterator[TestClient]:
+    with session_for(domain.PERSON_OPERATOR) as http:
+        yield http
 
 
 @pytest.fixture()
