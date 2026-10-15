@@ -28,5 +28,20 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // Each project needs its own workspace: `workflow` the demo-setup seed,
+  // `authoring` an authoring-start graph (`seed_demo --fresh`). Run one with
+  // `npm run test:e2e -- --project=<name>`; each skips with the seed command
+  // when its workspace is not the one it needs.
+  projects: [
+    {
+      name: "workflow",
+      testMatch: "workflow.spec.ts",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "authoring",
+      testMatch: "authoring.spec.ts",
+      use: { ...devices["Desktop Chrome"] },
+    },
+  ],
 });
