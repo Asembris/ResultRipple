@@ -6,7 +6,17 @@ import type { Actor, AgentJob, AgentRunSummary, Plan, ReadinessResponse, Workspa
  */
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "/api").replace(/\/$/, "");
 
+/**
+ * The API itself did not answer: a network failure, or the proxy in front of it
+ * reporting a gateway error without the API's own typed body.
+ */
 export class ApiUnreachableError extends Error {}
+
+const GATEWAY_STATUSES = new Set([502, 503, 504]);
+
+function isTypedRefusal(body: unknown): body is { code: string } {
+  return typeof body === "object" && body !== null && typeof (body as { code?: unknown }).code === "string";
+}
 
 /** A typed refusal from the server: a stable code plus the witness for it. */
 export class ApiRefusal extends Error {
@@ -32,6 +42,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiUnreachableError(`API unreachable at ${BASE_URL}`, { cause });
   }
   const body = response.status === 204 ? null : await response.json().catch(() => null);
+  if (GATEWAY_STATUSES.has(response.status) && !isTypedRefusal(body)) {
+    // The proxy answered for an API that did not.
+    throw new ApiUnreachableError(`API unreachable: the proxy returned HTTP ${response.status}`);
+  }
   if (!response.ok) {
     const failure = (body ?? {}) as { code?: string; detail?: string; context?: Record<string, unknown> };
     throw new ApiRefusal(
@@ -44,7 +58,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-/** A 503 here is a real answer: the API is up but FalkorDB is not. */
+/**
+ * A 503 carrying a readiness body is a real answer: the API is up but FalkorDB
+ * is not. Any other failure means the API itself could not be reached.
+ */
 export async function fetchReadiness(): Promise<ReadinessResponse> {
   let response: Response;
   try {
@@ -58,7 +75,11 @@ export async function fetchReadiness(): Promise<ReadinessResponse> {
   if (response.status !== 200 && response.status !== 503) {
     throw new ApiUnreachableError(`API returned HTTP ${response.status}`);
   }
-  return (await response.json()) as ReadinessResponse;
+  const body = (await response.json().catch(() => null)) as ReadinessResponse | null;
+  if (!body || typeof body.falkordb !== "object" || body.falkordb === null) {
+    throw new ApiUnreachableError(`API unreachable: the proxy returned HTTP ${response.status}`);
+  }
+  return body;
 }
 
 export const fetchWorkspace = () => request<Workspace>("/workspace");

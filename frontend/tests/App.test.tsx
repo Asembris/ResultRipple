@@ -101,6 +101,26 @@ describe("publishing desk", () => {
     expect(panel.getByText(/published .South costs \$0\.40 less per parcel than North/)).toBeDefined();
   });
 
+  it("shows a visitor without a session a read-only view with no mutation control", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/auth/session")) return new Response(JSON.stringify({ actor: null }), { status: 200 });
+        if (url.includes("/plans/") || url.includes("/jobs/") || url.endsWith("/ready")) {
+          return new Response("{}", { status: 404 });
+        }
+        return new Response(JSON.stringify(WORKSPACE_CORRECTED), { status: 200 });
+      }),
+    );
+
+    render(<App />);
+
+    const nav = await screen.findByRole("navigation", { name: /demo identities/i });
+    expect(within(nav).getByRole("status").textContent).toMatch(/Read-only view/);
+    expect(screen.queryByRole("button", { name: /Confirm correction|Run agent|Stage manually/ })).toBeNull();
+  });
+
   it("asks for a passcode instead of signing in on a click", async () => {
     const calls: { url: string; body: unknown }[] = [];
     stubApi(WORKSPACE_V1, calls);
@@ -192,6 +212,71 @@ describe("publishing desk", () => {
 
     render(<App />);
 
-    expect(await screen.findByText(/Backend unreachable/)).toBeDefined();
+    expect(await screen.findByText(/API unreachable/, { selector: "h2" })).toBeDefined();
+    expect(screen.queryByText(/FalkorDB unavailable/)).toBeNull();
+  });
+
+  it("reads a bare proxy 502 as the API being unreachable, not as a refusal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("", { status: 502, headers: { "content-type": "text/html" } })),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText(/API unreachable/, { selector: "h2" })).toBeDefined();
+    expect(screen.getByText(/the proxy returned HTTP 502/)).toBeDefined();
+    expect(screen.queryByText(/FalkorDB unavailable/)).toBeNull();
+    expect(screen.queryByText(/HTTP_502/)).toBeNull();
+  });
+
+  it("reads a bare proxy 503 the same way", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("Service Unavailable", { status: 503 })),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText(/API unreachable/, { selector: "h2" })).toBeDefined();
+    expect(screen.queryByText(/FalkorDB unavailable/)).toBeNull();
+  });
+
+  it("names FalkorDB when the API is up and readiness reports the graph down", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/ready")) {
+          return new Response(
+            JSON.stringify({
+              ready: false,
+              service: "resultripple-api",
+              version: "0.3.0",
+              falkordb: {
+                connected: false,
+                endpoint: "falkordb:6379",
+                graph: "resultripple",
+                error_code: "GRAPH_UNREACHABLE",
+                error_detail: "ConnectionError",
+              },
+              agent: { configured: true },
+              implemented_scope: [],
+            }),
+            { status: 503 },
+          );
+        }
+        return new Response(
+          JSON.stringify({ code: "GRAPH_UNREACHABLE", detail: "authoritative context unavailable" }),
+          { status: 503 },
+        );
+      }),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText(/FalkorDB unavailable/, { selector: "h2" })).toBeDefined();
+    expect(screen.getAllByText(/GRAPH_UNREACHABLE/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/API unreachable/, { selector: "h2" })).toBeNull();
   });
 });
