@@ -1,0 +1,29 @@
+# One origin for the whole product: the static frontend at /, the API at /api.
+# Caddy obtains and renews the certificate for SITE_HOST automatically.
+{
+	admin off
+}
+
+{$SITE_HOST} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		# Editions are framed by the app itself, never by another site.
+		X-Frame-Options "SAMEORIGIN"
+		-Server
+	}
+
+	# The API sees its own paths (/ready, /workspace, ...), never the prefix.
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
