@@ -67,8 +67,11 @@ holds it to that reading:
 | `UNSTATED` | it asks to keep a lane or a document while naming neither | **nothing may be staged**; the loop then permits only `request_clarification` |
 | `NOT_REQUESTED` | it does not ask to keep anything | ordinary correction goals |
 
-Freshness is checked *before* the first write, so a stale inspection prevents staging
-rather than being reported next to a plan that was in fact persisted. A repeated call
+The `inspection_id`'s context revision is passed through to the staging service as a
+precondition, checked against the same in-lock snapshot the candidates are rendered from
+and before any side effect. An authorized mutation that commits after the investigation
+therefore refuses the staging with `STALE_INSPECTION` and the current revision, instead of
+slipping between a separate check and the write. A repeated call
 inside one run returns the plan already staged by that run. The idempotency key is
 namespaced by job id. `focus_occurrence_ids` is recorded for transparency and cannot
 narrow the scope — the engine publishes every registered occurrence regardless.

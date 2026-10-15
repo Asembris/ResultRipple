@@ -689,20 +689,6 @@ class AgentToolbox:
                 "classify the request again, or ask one question if it is unstated",
             )
 
-        # Freshness is checked before the first write, not after it: a stale
-        # inspection must prevent staging rather than be reported alongside a
-        # plan that was in fact persisted.
-        with WORKSPACE_LOCK:
-            current_revision = int(self.graph.workspace(domain.WORKSPACE_ID)["context_revision"])
-        if current_revision != inspection.context_revision:
-            return _refusal(
-                "STALE_INSPECTION",
-                "the workspace moved between your inspection and this call",
-                "call inspect_impact again with the current revision below, then stage",
-                inspection_context_revision=inspection.context_revision,
-                current_context_revision=current_revision,
-            )
-
         intent = IntentFrame(
             raw_request=self._raw_request(),
             goal=args.goal,
@@ -723,6 +709,10 @@ class AgentToolbox:
                 # another run's key and a repeat inside one run is a no-op.
                 idempotency_key=f"{self.job_id}:{args.idempotency_key}",
                 allowed_case_states=STAGEABLE_CASE_STATES,
+                # Freshness is the service's precondition, checked under the one
+                # lock that also protects rendering and the plan write. Checking
+                # it here instead would reopen the window it closes.
+                expected_context_revision=inspection.context_revision,
             )
         except EngineHold as hold:
             return _refusal(
@@ -734,11 +724,13 @@ class AgentToolbox:
                 ),
             )
         except (WorkflowRefused, GuardFailed) as refused:
-            return _refusal(
-                refused.code,
-                refused.detail,
-                "re-inspect the current context before trying again",
+            witness = dict(getattr(refused, "context", None) or {})
+            recovery = (
+                "call inspect_impact again with the current revision below, then stage"
+                if refused.code == "STALE_INSPECTION"
+                else "re-inspect the current context before trying again"
             )
+            return _refusal(refused.code, refused.detail, recovery, **witness)
 
         self.staged_plan_id = str(plan["plan_id"])
         facts = _plan_facts(plan)

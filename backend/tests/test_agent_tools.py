@@ -377,6 +377,139 @@ def test_a_world_change_between_inspection_and_staging_blocks_the_write(seeded):
     assert recovered.payload["plan"]["assigned_reviewer_id"] == domain.PERSON_SAM
 
 
+def test_staging_refuses_an_expected_revision_that_no_longer_holds(seeded):
+    """The service owns the precondition, so the manual path is guarded too."""
+    graph = seeded["graph"]
+    toolbox = _corrected(seeded)
+    stale = int(graph.workspace(domain.WORKSPACE_ID)["context_revision"]) - 1
+
+    with pytest.raises(WorkflowRefused) as refused:
+        service.stage_review(
+            graph,
+            get_artifact_store(),
+            get_dataset_path(),
+            actor=ARI,
+            case_id=domain.CASE_ID,
+            intent=service.IntentFrame(
+                raw_request=RAW_REQUEST,
+                goal=domain.GOAL_CORRECT_FACTS,
+                disposition=domain.DISPOSITION_RETURN_FOR_REVIEW,
+                alternative_flag=False,
+                note="",
+            ),
+            idempotency_key="stale-expectation",
+            expected_context_revision=stale,
+        )
+    assert refused.value.code == "STALE_INSPECTION"
+    assert refused.value.context["expected_context_revision"] == stale
+    assert refused.value.context["current_context_revision"] == stale + 1
+    assert graph.plans_for_case(domain.CASE_ID) == []
+    assert graph.case(domain.CASE_ID)["status"] == "CORRECTION_APPLIED"
+    assert toolbox.staged_plan_id is None
+
+
+def test_a_mutation_landing_inside_the_staging_lock_cannot_stage(seeded, monkeypatch):
+    """An authorized write that commits after the agent investigated is refused.
+
+    The freshness check and the plan write have to share one lock acquisition.
+    When they did not, a mutation committed in between could stage an intent
+    derived from evidence or authority the investigation never saw. Here the
+    reviewer is reassigned at the moment the staging service reads its snapshot,
+    which is the narrowest version of that interleaving.
+    """
+    graph = seeded["graph"]
+    toolbox = _corrected(seeded)
+    inspection = _inspect(toolbox)
+    assert inspection["review_authority"]["current_reviewer_id"] == domain.PERSON_NOOR
+    inspected_revision = inspection["context_revision"]
+
+    reassigned: list[int] = []
+    read_context = service._context
+
+    def mutate_then_read(graph_client, csv_path):
+        if not reassigned:
+            # A real guarded operator mutation, committed by another writer.
+            # The graph method is used directly because the service wrapper
+            # takes the same non-reentrant lock this call already holds.
+            changed = graph_client.reassign_reviewer(
+                workspace_id=domain.WORKSPACE_ID,
+                team_id=domain.TEAM_ID,
+                from_person_id=domain.PERSON_NOOR,
+                to_person_id=domain.PERSON_SAM,
+                expected_revision=int(
+                    graph_client.workspace(domain.WORKSPACE_ID)["context_revision"]
+                ),
+                operator_id=domain.PERSON_OPERATOR,
+                source="test-concurrent-rota-change",
+                at="2026-10-15T00:00:00+00:00",
+            )
+            reassigned.append(int(changed["context_revision"]))
+        return read_context(graph_client, csv_path)
+
+    # The artifact volume is shared across this session's tests, so clear any
+    # candidate bytes a previous plan of the same id left behind: what matters
+    # is that this refused attempt writes none.
+    candidate_paths = [
+        get_artifact_store().candidate_path(f"plan-{domain.CASE_ID}-v1", document_id)
+        for document_id in (domain.DOC_OPS, domain.DOC_MEMO)
+    ]
+    for path in candidate_paths:
+        path.unlink(missing_ok=True)
+
+    monkeypatch.setattr(service, "_context", mutate_then_read)
+    outcome = _stage(toolbox, inspection["inspection_id"])
+
+    assert reassigned, "the mutation under test did not run"
+    assert outcome.ok is False
+    assert outcome.code == "STALE_INSPECTION"
+    witness = outcome.payload["error"]
+    assert witness["expected_context_revision"] == inspected_revision
+    assert witness["current_context_revision"] == reassigned[0]
+    assert "inspect_impact again" in witness["recovery"]
+
+    # Nothing was written: no plan, no candidate bytes, no advanced case.
+    assert graph.plans_for_case(domain.CASE_ID) == []
+    assert graph.case(domain.CASE_ID)["status"] == "CORRECTION_APPLIED"
+    assert toolbox.staged_plan_id is None
+    assert not any(path.is_file() for path in candidate_paths)
+    assert (
+        graph.workspace(domain.WORKSPACE_ID)["current_release_id"]
+        == seeded["version_one"]["release_id"]
+    )
+
+    # Re-inspecting recovers, and the plan goes to whoever holds the case now.
+    monkeypatch.undo()
+    fresh = _inspect(toolbox)
+    assert fresh["review_authority"]["current_reviewer_id"] == domain.PERSON_SAM
+    recovered = _stage(toolbox, fresh["inspection_id"], idempotency_key="after-race")
+    assert recovered.ok is True, recovered.payload
+    assert recovered.payload["plan"]["assigned_reviewer_id"] == domain.PERSON_SAM
+    assert len(graph.plans_for_case(domain.CASE_ID)) == 1
+
+
+def test_the_manual_staging_path_still_works_without_an_expectation(seeded):
+    """The existing API is unchanged: no expectation, no new precondition."""
+    graph = seeded["graph"]
+    _corrected(seeded)
+    plan = service.stage_review(
+        graph,
+        get_artifact_store(),
+        get_dataset_path(),
+        actor=ARI,
+        case_id=domain.CASE_ID,
+        intent=service.IntentFrame(
+            raw_request=RAW_REQUEST,
+            goal=domain.GOAL_RETAIN_CHEAPER_CLAIM,
+            disposition=domain.DISPOSITION_RETURN_FOR_REVIEW,
+            alternative_flag=True,
+            note="Manual fallback.",
+        ),
+        idempotency_key="manual-1",
+    )
+    assert plan["status"] == "AWAITING_REVIEW"
+    assert sorted(plan["covered_occurrence_ids"]) == [domain.OCC_MEMO, domain.OCC_OPS]
+
+
 # -- clarification ------------------------------------------------------------
 
 

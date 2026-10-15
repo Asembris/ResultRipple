@@ -241,8 +241,18 @@ def stage_review(
     intent: IntentFrame,
     idempotency_key: str,
     allowed_case_states: tuple[str, ...] = ("CORRECTION_APPLIED", "NEEDS_CHANGES"),
+    expected_context_revision: int | None = None,
 ) -> dict[str, Any]:
-    """Render real candidates and persist one review plan for the current reviewer."""
+    """Render real candidates and persist one review plan for the current reviewer.
+
+    `expected_context_revision` is the revision the caller's investigation saw.
+    When it is given it is a precondition, checked here against the same in-lock
+    snapshot the candidates are rendered from. Checking it anywhere else would
+    leave a window in which an authorized mutation lands between the check and
+    the write, and an intent derived from evidence or authority that no longer
+    holds would reach a reviewer. The manual path passes nothing and is
+    unaffected.
+    """
     with WORKSPACE_LOCK:
         case = graph.case(case_id)
         if case is None:
@@ -257,6 +267,21 @@ def stage_review(
 
         validate_intent(intent.goal, intent.disposition, intent.alternative_flag)
         context = _context(graph, csv_path)
+
+        # Before the first side effect of any kind: no candidate bytes, no plan,
+        # and no case advanced against a world the investigation never saw.
+        if (
+            expected_context_revision is not None
+            and context.context_revision != expected_context_revision
+        ):
+            raise WorkflowRefused(
+                "STALE_INSPECTION",
+                "the workspace moved between the investigation and this staging",
+                context={
+                    "expected_context_revision": expected_context_revision,
+                    "current_context_revision": context.context_revision,
+                },
+            )
 
         content_hash = domain.canonical_sha(
             content_identity(
