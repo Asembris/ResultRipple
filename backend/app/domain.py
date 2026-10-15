@@ -57,6 +57,7 @@ TEMPLATE_CARD_STYLES = {
 
 # What the analyst confirms. Recorded on the graph beside the approval itself.
 FINDING_APPROVAL_STATEMENT = "This is the intended comparison."
+DECISION_BASIS_STATEMENT = "This finding is a basis for the {decision_title}."
 
 # The permitted factual grammar is deliberately finite.
 RELATION_LOWER = "LOWER_COST"

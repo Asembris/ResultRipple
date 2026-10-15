@@ -103,6 +103,14 @@ class LinkedFindingRequest(BaseModel):
     expected_context_revision: int
 
 
+class DecisionBasisRequest(BaseModel):
+    """Explicitly record a finding as a basis for a decision."""
+
+    claim_id: str = Field(min_length=1, max_length=120)
+    expected_context_revision: int
+    confirmed_basis: bool = False
+
+
 class StageReviewRequest(BaseModel):
     """A typed intent frame. The raw request stays visible beside it."""
 

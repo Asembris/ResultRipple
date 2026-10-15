@@ -659,6 +659,57 @@ class GraphClient:
             )
         return row
 
+    def record_decision_basis(
+        self,
+        *,
+        workspace_id: str,
+        decision_id: str,
+        claim_id: str,
+        decision_document_id: str,
+        expected_revision: int,
+        actor_id: str,
+        recorded_at: str,
+        statement: str,
+    ) -> dict[str, Any]:
+        """Record the explicit basis. The finding must be placed beside the decision.
+
+        A decision that already has a basis is never given a second one.
+        """
+        row = self.run_one(
+            """
+            MATCH (w:Workspace {id:$workspace_id}),
+                  (decision:Decision {id:$decision_id}),
+                  (cl:Claim {id:$claim_id})-[:BASED_ON]->(:Comparison),
+                  (occ:Occurrence)-[:OF_CLAIM]->(cl),
+                  (occ)-[:IN_DOCUMENT]->(:Document {id:$decision_document_id})
+            WHERE w.context_revision = $expected_revision
+            OPTIONAL MATCH (decision)-[existing:BASED_ON]->(:Claim)
+            WITH w, decision, cl, count(DISTINCT existing) AS bases
+            WHERE bases = 0
+            CREATE (decision)-[:BASED_ON {recorded_by:$actor_id, recorded_at:$recorded_at,
+                                          statement:$statement}]->(cl)
+            SET w.context_revision = w.context_revision + 1
+            RETURN decision.id AS decision_id, cl.id AS claim_id,
+                   w.context_revision AS context_revision
+            """,
+            {
+                "workspace_id": workspace_id,
+                "decision_id": decision_id,
+                "claim_id": claim_id,
+                "decision_document_id": decision_document_id,
+                "expected_revision": expected_revision,
+                "actor_id": actor_id,
+                "recorded_at": recorded_at,
+                "statement": statement,
+            },
+        )
+        if row is None:
+            raise GuardFailed(
+                "BASIS_GUARD_FAILED",
+                "expected revision, the placed finding, or an empty basis did not hold",
+            )
+        return row
+
     # -- bounded agent jobs ---------------------------------------------------
 
     def create_agent_job(self, *, case_id: str, job: dict[str, Any]) -> dict[str, Any]:

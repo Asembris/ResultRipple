@@ -1092,6 +1092,95 @@ def insert_linked_finding(
         }
 
 
+def _decision_document_id(graph: GraphClient) -> str:
+    """The one document that carries the typed decision-status block."""
+    holders = sorted(
+        {
+            row["document_id"]
+            for row in graph.package_inventory()
+            if any(
+                block["kind"] == "decision" for block in json.loads(row["source_blocks"] or "[]")
+            )
+        }
+    )
+    if len(holders) != 1:
+        raise WorkflowRefused(
+            "DECISION_BLOCK_AMBIGUOUS", f"{len(holders)} documents carry a decision block"
+        )
+    return holders[0]
+
+
+def record_decision_basis(
+    graph: GraphClient,
+    *,
+    actor: Actor,
+    decision_id: str,
+    claim_id: str,
+    expected_revision: int,
+    confirmed: bool,
+) -> dict[str, Any]:
+    """Record an explicit basis. It is never inferred from nearby prose."""
+    _require_analyst(actor, "record a decision basis")
+    if not confirmed:
+        raise WorkflowRefused(
+            "BASIS_NOT_CONFIRMED",
+            "confirm that this finding is a basis for the proposal first",
+            http_status=400,
+        )
+    with WORKSPACE_LOCK:
+        rows = graph.decision_authority(decision_id)
+        if not rows:
+            raise WorkflowRefused("DECISION_UNKNOWN", f"decision {decision_id}", http_status=404)
+        finding = _approved_finding(graph, claim_id)
+        bases = {row["basis_claim_id"] for row in rows if row["basis_claim_id"] is not None}
+        if bases == {claim_id}:
+            current = int(graph.workspace(domain.WORKSPACE_ID)["context_revision"])
+            return {
+                "decision_id": decision_id,
+                "claim_id": claim_id,
+                "context_revision": current,
+                "reused": True,
+            }
+        if bases:
+            raise WorkflowRefused(
+                "BASIS_ALREADY_RECORDED",
+                "this decision already records a different basis",
+                context={"basis_claim_ids": sorted(bases)},
+            )
+        decision_document_id = _decision_document_id(graph)
+        if not any(
+            occ["document_id"] == decision_document_id for occ in finding["occurrences"].values()
+        ):
+            raise WorkflowRefused(
+                "BASIS_REQUIRES_LINKED_FINDING",
+                "insert the linked finding into the document that carries the decision first",
+                context={"decision_document_id": decision_document_id},
+            )
+        _require_revision(graph, expected_revision)
+        statement = domain.DECISION_BASIS_STATEMENT.format(
+            decision_title=rows[0]["decision_title"]
+        )
+        try:
+            row = graph.record_decision_basis(
+                workspace_id=domain.WORKSPACE_ID,
+                decision_id=decision_id,
+                claim_id=claim_id,
+                decision_document_id=decision_document_id,
+                expected_revision=expected_revision,
+                actor_id=actor.person_id,
+                recorded_at=_now(),
+                statement=statement,
+            )
+        except GuardFailed as exc:
+            raise WorkflowRefused(exc.code, exc.detail) from exc
+        return {
+            "decision_id": decision_id,
+            "claim_id": claim_id,
+            "context_revision": int(row["context_revision"]),
+            "reused": False,
+        }
+
+
 # -- read model ---------------------------------------------------------------
 
 

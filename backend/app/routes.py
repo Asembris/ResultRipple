@@ -29,6 +29,7 @@ from .models import (
     ApplyCorrectionRequest,
     ApprovalRequest,
     CreateFindingRequest,
+    DecisionBasisRequest,
     DemoSessionRequest,
     LinkedFindingRequest,
     RejectionRequest,
@@ -185,6 +186,25 @@ async def insert_linked_finding(
             claim_id=body.claim_id,
             card_style=body.card_style,
             expected_revision=body.expected_context_revision,
+        )
+    except (WorkflowRefused, EngineHold, GraphUnavailable) as exc:
+        raise _fail(exc) from exc
+
+
+@router.post("/decisions/{decision_id}/basis", tags=["authoring"])
+async def record_decision_basis(
+    decision_id: str, body: DecisionBasisRequest, actor: ActorDep, graph: GraphDep
+) -> dict[str, Any]:
+    """An explicit, analyst-confirmed basis. Never inferred from nearby prose."""
+    try:
+        return await _offload(
+            service.record_decision_basis,
+            graph,
+            actor=actor,
+            decision_id=decision_id,
+            claim_id=body.claim_id,
+            expected_revision=body.expected_context_revision,
+            confirmed=body.confirmed_basis,
         )
     except (WorkflowRefused, EngineHold, GraphUnavailable) as exc:
         raise _fail(exc) from exc
