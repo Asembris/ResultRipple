@@ -1148,12 +1148,21 @@
   .rr-stage h1.rr-h1--desk { font-size: 34px; }
   .rr-stage h1.rr-h1--final { font-size: 40px; }
   .rr-reversal { font-size: 54px; }
-  .rr-strip { padding: 14px 18px; gap: 20px; }
-  .rr-strip__right { min-width: 160px; }
-  .rr-strip__delta { font-size: 26px; }
   .rr-editions { grid-template-columns: 1fr; }
   .rr-facts { grid-template-columns: 1fr; }
-  .rr-inspector { width: 320px; bottom: 236px; }
+  .rr-trip { grid-template-columns: 1fr; gap: 10px; }
+  .rr-ledger__row { grid-template-columns: 1fr; gap: 4px; }
+  .rr-inspector { width: 320px; bottom: 268px; }
+
+  /* The strip keeps both bars and the delta, stacked rather than squeezed. */
+  .rr-strip { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 14px 18px; }
+  .rr-strip__caption { flex-direction: column; gap: 4px; }
+  .rr-strip__row { grid-template-columns: 60px minmax(0, 1fr) auto; gap: 12px; }
+  .rr-strip__lane { font-size: 18px; }
+  .rr-strip__right { min-width: 0; text-align: left; }
+  .rr-strip__was { height: auto; }
+  .rr-strip__delta { font-size: 26px; margin-top: 2px; }
+  .rr-strip__note { margin-top: 4px; }
 }
 @media (max-width: 1023px) {
   .rr-header { gap: 12px; padding: 0 12px; }

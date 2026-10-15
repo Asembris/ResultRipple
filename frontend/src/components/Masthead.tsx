@@ -79,6 +79,11 @@ export default function Masthead({
                   className={`rr-rail__step${current ? " rr-rail__step--current" : done ? " rr-rail__step--done" : ""}`}
                   aria-current={current ? "step" : undefined}
                   disabled={!reachable}
+                  aria-label={
+                    reachable
+                      ? `View step ${step}: ${name}`
+                      : `Step ${step}: ${name} — not reached yet`
+                  }
                   title={
                     reachable
                       ? `View step ${step}: ${name}`

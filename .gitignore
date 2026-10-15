@@ -48,3 +48,10 @@ Thumbs.db
 # Local design handoff artifacts.
 /Initial design inquiry.zip
 /.design-handoff/
+
+# Local browser-automation artifacts.
+/.playwright-mcp/
+
+# Playwright run artifacts.
+/frontend/test-results/
+/frontend/playwright-report/
