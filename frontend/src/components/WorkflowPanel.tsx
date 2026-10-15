@@ -3,6 +3,7 @@ import CorrectionCaseLegacy from "./CorrectionCase";
 import PublishingDeskLegacy from "./PublishingDesk";
 import RefusalCard from "./RefusalCard";
 import ReviewPaneLegacy from "./ReviewPane";
+import CorrectionStage from "./stages/CorrectionStage";
 import DeskStage from "./stages/DeskStage";
 import type { StageContext } from "./stages/context";
 import { STEP_NAMES } from "../workflow";
@@ -28,6 +29,8 @@ export default function WorkflowPanel({ context }: { context: StageContext }) {
 
       {step === 1 ? (
         <DeskStage context={context} />
+      ) : step === 2 ? (
+        <CorrectionStage context={context} />
       ) : (
         <div className="rr-legacy">
           <p className="rr-mono">

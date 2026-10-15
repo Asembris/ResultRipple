@@ -10,7 +10,7 @@ import type { StageContext, ViewerTab } from "./components/stages/context";
 import GraphStage, { type GraphInsets } from "./graph/GraphStage";
 import type { HoverInfo, NodeDescription, SceneHandle } from "./graph/graph-scene.js";
 import { stageFromWorkspace } from "./graph/stageFromWorkspace";
-import type { Actor, Plan, ReadinessResponse, Workspace } from "./types";
+import type { Actor, Comparison, Plan, ReadinessResponse, Workspace } from "./types";
 import {
   activeCase,
   correctionCommitted,
@@ -72,7 +72,19 @@ export default function AppShell({
   const [plan, setPlan] = useState<Plan | null>(null);
   const [priorPlan, setPriorPlan] = useState<Plan | null>(null);
 
+  // The comparison as the server reported it on the previous distinct fetch.
+  // Two real values, so a "was → now" figure never needs browser arithmetic.
+  const lastComparison = useRef<Comparison | null>(null);
+  const [previousComparison, setPreviousComparison] = useState<Comparison | null>(null);
+
   const toastTimer = useRef(0);
+
+  useEffect(() => {
+    const now = workspace.comparison;
+    const before = lastComparison.current;
+    if (now && before && JSON.stringify(before) !== JSON.stringify(now)) setPreviousComparison(before);
+    lastComparison.current = now ?? null;
+  }, [workspace.comparison]);
 
   const kase = useMemo(() => activeCase(workspace), [workspace]);
   const latest = useMemo(() => latestPlanSummary(kase), [kase]);
@@ -238,6 +250,7 @@ export default function AppShell({
     kase,
     plan,
     priorPlan,
+    previousComparison,
     busy,
     step,
     serverStep: reachable,
@@ -307,7 +320,10 @@ export default function AppShell({
         </>
       )}
 
-      <div style={{ ...chrome, transform: `translateY(${introDone ? 0 : -14}px)`, transition: "opacity .9s ease, transform .9s cubic-bezier(.2,.7,.2,1)" }}>
+      <div
+        className="rr-chrome"
+        style={{ ...chrome, transform: `translateY(${introDone ? 0 : -14}px)` }}
+      >
         <Masthead
           workspace={workspace}
           actor={actor}

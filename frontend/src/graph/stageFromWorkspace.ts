@@ -129,6 +129,17 @@ const PERSON_SLOT_IDS = ["person-noor", "person-sam"];
 
 const text = (value: string | null | undefined): string => value ?? "";
 
+/** Which scene slot a document occupies, for focusing it from the panel. */
+export function documentNodeKey(ws: Workspace, documentId: string): "doc-ops" | "doc-memo" | null {
+  const docs = ws.scope;
+  const slots: ("doc-ops" | "doc-memo")[] = ["doc-ops", "doc-memo"];
+  for (let index = 0; index < slots.length; index += 1) {
+    const match = docs.find((doc) => doc.document_id === DOC_SLOT_IDS[index]) ?? docs[index] ?? null;
+    if (match && match.document_id === documentId) return slots[index];
+  }
+  return null;
+}
+
 /**
  * Lane ids to the three visual columns. Seeded ids name themselves; anything
  * else is placed by its role in the comparison, so the picture stays readable

@@ -17,6 +17,28 @@ import {
  * trace, no success state the job did not reach.
  */
 
+/** The plan record the real app reads back for the case's latest version. */
+function planFor(workspace: Workspace) {
+  const kase = workspace.cases.find((entry) => entry.source_ref === "DX-2026-0914");
+  const summary = kase?.plans.at(-1);
+  if (!kase || !summary) return null;
+  return {
+    ...summary,
+    raw_request: kase.request_text,
+    candidates: Object.fromEntries(workspace.scope.map((doc, i) => [doc.document_id, String(i).repeat(64)])),
+    scope: null,
+    context_revision: workspace.context_revision,
+    prior_release_id: workspace.current_release?.release_id ?? "",
+    staged_at: "2026-10-15T10:00:00Z",
+    approved_at: null,
+    acknowledged_alternative: null,
+    superseded_by: null,
+    case_id: kase.case_id,
+    assigned_reviewer_name: workspace.people.find((p) => p.person_id === summary.assigned_reviewer_id)?.display_name ?? null,
+    covered_occurrence_ids: workspace.scope.flatMap((doc) => doc.occurrences.map((o) => o.occurrence_id)),
+  };
+}
+
 interface Call {
   url: string;
   method: string;
@@ -99,14 +121,22 @@ function stubApi({
         return new Response(JSON.stringify(job), { status: 200 });
       }
       if (url.includes("/plans/")) {
-        return new Response(JSON.stringify({ code: "PLAN_UNKNOWN" }), { status: 404 });
+        const plan = planFor(workspace);
+        if (!plan) return new Response(JSON.stringify({ code: "PLAN_UNKNOWN" }), { status: 404 });
+        return new Response(JSON.stringify(plan), { status: 200 });
       }
       return new Response(JSON.stringify(workspace), { status: 200 });
     }),
   );
 }
 
+/** The investigation panel, opening it the way a user does when it is the next step. */
 async function agentPanel() {
+  await screen.findByRole("complementary", { name: /workflow/i });
+  const open = await screen
+    .findByRole("button", { name: /Ask the agent to prepare the review/i })
+    .catch(() => null);
+  if (open) fireEvent.click(open);
   return within(await screen.findByRole("region", { name: /Ask the agent/i }));
 }
 

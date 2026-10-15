@@ -89,16 +89,16 @@ describe("publishing desk", () => {
     expect(panel.getByText(/South costs \$0\.40 less per parcel than North/)).toBeDefined();
   });
 
-  it("marks both published cards out of date after the correction", async () => {
+  it("marks both registered uses as contradicted after the correction", async () => {
     stubApi(WORKSPACE_CORRECTED);
 
     render(<App />);
 
-    expect(await screen.findByText(/Review needed/)).toBeDefined();
-    const stale = screen.getAllByText(/Out of date against current evidence/);
-    expect(stale).toHaveLength(2);
-    expect(screen.getAllByText(/\(direction changed\)/)).toHaveLength(2);
-    expect(screen.getByText(/South costs more than North by \$0\.40 per parcel/)).toBeDefined();
+    const panel = within(await screen.findByRole("complementary", { name: /workflow/i }));
+    expect(panel.getAllByText("DIRECTION CHANGED")).toHaveLength(2);
+    expect(panel.getByText("BASIS CONTRADICTED")).toBeDefined();
+    // The published sentence, struck, is the one the editions actually carry.
+    expect(panel.getByText(/published .South costs \$0\.40 less per parcel than North/)).toBeDefined();
   });
 
   it("asks for a passcode instead of signing in on a click", async () => {

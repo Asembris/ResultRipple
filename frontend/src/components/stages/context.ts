@@ -1,5 +1,5 @@
 import type { ApiRefusal } from "../../api";
-import type { Actor, CorrectionCase, Plan, ReadinessResponse, Workspace } from "../../types";
+import type { Actor, Comparison, CorrectionCase, Plan, ReadinessResponse, Workspace } from "../../types";
 import type { Step } from "../../workflow";
 
 export type ViewerTab = "current" | "candidate";
@@ -17,6 +17,8 @@ export interface StageContext {
   plan: Plan | null;
   /** The version before it, when one exists: used to compare candidate hashes. */
   priorPlan: Plan | null;
+  /** The comparison on the previous distinct fetch, when this session saw one. */
+  previousComparison: Comparison | null;
   busy: boolean;
   step: Step;
   /** Furthest panel the data makes sense to show. */
