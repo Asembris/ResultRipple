@@ -48,6 +48,13 @@ TEMPLATE_VERSION = "tpl-1"
 ALLOWED_METRIC_KEYS = frozenset({"MEAN_COST_V1"})
 ALLOWED_CARD_STYLES = frozenset({"DOLLARS", "CENTS"})
 
+# The one approved linked-finding style for each document layout: dollars in the
+# operations report, cents in the executive memo.
+TEMPLATE_CARD_STYLES = {
+    "operations_cost_review": "DOLLARS",
+    "south_expansion_memo": "CENTS",
+}
+
 # What the analyst confirms. Recorded on the graph beside the approval itself.
 FINDING_APPROVAL_STATEMENT = "This is the intended comparison."
 

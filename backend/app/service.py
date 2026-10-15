@@ -1006,6 +1006,92 @@ def create_finding(
         }
 
 
+def _with_finding_block(blocks: list[dict[str, Any]], block_id: str) -> list[dict[str, Any]]:
+    """Place the card after the document's opening narrative block."""
+    position = next(
+        (index + 1 for index, block in enumerate(blocks) if block["kind"] == "narrative"), 0
+    )
+    return [*blocks[:position], {"id": block_id, "kind": "finding"}, *blocks[position:]]
+
+
+def insert_linked_finding(
+    graph: GraphClient,
+    *,
+    actor: Actor,
+    document_id: str,
+    claim_id: str,
+    card_style: str,
+    expected_revision: int,
+) -> dict[str, Any]:
+    """Create, or reuse, the one placement of a finding in a document."""
+    _require_analyst(actor, "insert a linked finding")
+    if card_style not in domain.ALLOWED_CARD_STYLES:
+        raise WorkflowRefused(
+            "CARD_STYLE_NOT_ALLOWED", f"style {card_style!r} is not allowlisted", http_status=422
+        )
+    with WORKSPACE_LOCK:
+        document = graph.document(document_id)
+        if document is None:
+            raise WorkflowRefused("DOCUMENT_UNKNOWN", f"document {document_id}", http_status=404)
+        approved_style = domain.TEMPLATE_CARD_STYLES.get(document["template"])
+        if card_style != approved_style:
+            raise WorkflowRefused(
+                "CARD_STYLE_NOT_ALLOWED",
+                f"{document['title']} publishes linked findings as {approved_style}",
+                http_status=422,
+                context={"approved_style": approved_style},
+            )
+        finding = _approved_finding(graph, claim_id)
+
+        placed = [
+            occ for occ in finding["occurrences"].values() if occ["document_id"] == document_id
+        ]
+        if placed:
+            current = int(graph.workspace(domain.WORKSPACE_ID)["context_revision"])
+            return {**placed[0], "claim_id": claim_id, "context_revision": current, "reused": True}
+
+        _require_revision(graph, expected_revision)
+        blocks = json.loads(document["source_blocks"])
+        block_id = f"finding-{claim_id}"
+        if any(block["id"] == block_id for block in blocks):
+            raise WorkflowRefused(
+                "SCOPE_INVENTORY_MISMATCH",
+                f"{document_id} already has block {block_id} with no registered occurrence",
+            )
+        updated = _with_finding_block(blocks, block_id)
+        occurrence_id = (
+            f"occ-{document_id.removeprefix('doc-')}-{claim_id.removeprefix('claim-')}"
+        )
+        try:
+            row = graph.create_occurrence(
+                workspace_id=domain.WORKSPACE_ID,
+                document_id=document_id,
+                claim_id=claim_id,
+                occurrence_id=occurrence_id,
+                card_style=card_style,
+                block_id=block_id,
+                source_blocks=domain.canonical_json(updated),
+                source_sha=domain.canonical_sha(updated),
+                expected_source_revision=int(document["source_revision"]),
+                expected_source_sha=document["source_sha"],
+                expected_revision=expected_revision,
+                actor_id=actor.person_id,
+                registered_at=_now(),
+            )
+        except GuardFailed as exc:
+            raise WorkflowRefused(exc.code, exc.detail) from exc
+        return {
+            "occurrence_id": row["occurrence_id"],
+            "document_id": document_id,
+            "claim_id": claim_id,
+            "card_style": card_style,
+            "block_id": block_id,
+            "source_revision": int(row["source_revision"]),
+            "context_revision": int(row["context_revision"]),
+            "reused": False,
+        }
+
+
 # -- read model ---------------------------------------------------------------
 
 

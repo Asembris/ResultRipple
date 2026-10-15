@@ -519,6 +519,17 @@ class GraphClient:
             """
         )
 
+    def document(self, document_id: str) -> dict[str, Any] | None:
+        return self.run_one(
+            """
+            MATCH (doc:Document {id:$document_id})
+            RETURN doc.id AS document_id, doc.title AS title, doc.template AS template,
+                   doc.source_blocks AS source_blocks,
+                   doc.source_revision AS source_revision, doc.source_sha AS source_sha
+            """,
+            {"document_id": document_id},
+        )
+
     def create_finding(
         self,
         *,
@@ -573,6 +584,78 @@ class GraphClient:
             raise GuardFailed(
                 "FINDING_GUARD_FAILED",
                 "expected revision, analyst identity, or an unbound comparison did not hold",
+            )
+        return row
+
+    def create_occurrence(
+        self,
+        *,
+        workspace_id: str,
+        document_id: str,
+        claim_id: str,
+        occurrence_id: str,
+        card_style: str,
+        block_id: str,
+        source_blocks: str,
+        source_sha: str,
+        expected_source_revision: int,
+        expected_source_sha: str,
+        expected_revision: int,
+        actor_id: str,
+        registered_at: str,
+    ) -> dict[str, Any]:
+        """Place a linked finding and update the authored block inventory at once.
+
+        The occurrence, both of its edges, the new source blocks, the source
+        revision and the context revision change in one guarded mutation, so
+        the registered cards and the authored finding blocks never disagree.
+        """
+        row = self.run_one(
+            """
+            MATCH (w:Workspace {id:$workspace_id}),
+                  (doc:Document {id:$document_id}),
+                  (cl:Claim {id:$claim_id})-[binding:BASED_ON]->(:Comparison)
+            WHERE w.context_revision = $expected_revision
+              AND doc.source_revision = $expected_source_revision
+              AND doc.source_sha = $expected_source_sha
+            OPTIONAL MATCH (placed:Occurrence)-[:OF_CLAIM]->(cl), (placed)-[:IN_DOCUMENT]->(doc)
+            OPTIONAL MATCH (clash:Occurrence {id:$occurrence_id})
+            WITH w, doc, cl, count(DISTINCT binding) AS bindings,
+                 count(DISTINCT placed) AS here, count(DISTINCT clash) AS clashes
+            WHERE bindings = 1 AND here = 0 AND clashes = 0
+            CREATE (occ:Occurrence {id:$occurrence_id, card_style:$card_style,
+                                    block_id:$block_id, original_assertion:'',
+                                    registered_by:$actor_id, registered_at:$registered_at})
+            CREATE (occ)-[:OF_CLAIM]->(cl)
+            CREATE (occ)-[:IN_DOCUMENT]->(doc)
+            SET doc.source_blocks = $source_blocks,
+                doc.source_sha = $source_sha,
+                doc.source_revision = doc.source_revision + 1,
+                w.context_revision = w.context_revision + 1
+            RETURN occ.id AS occurrence_id, doc.source_revision AS source_revision,
+                   w.context_revision AS context_revision
+            """,
+            {
+                "workspace_id": workspace_id,
+                "document_id": document_id,
+                "claim_id": claim_id,
+                "occurrence_id": occurrence_id,
+                "card_style": card_style,
+                "block_id": block_id,
+                "source_blocks": source_blocks,
+                "source_sha": source_sha,
+                "expected_source_revision": expected_source_revision,
+                "expected_source_sha": expected_source_sha,
+                "expected_revision": expected_revision,
+                "actor_id": actor_id,
+                "registered_at": registered_at,
+            },
+        )
+        if row is None:
+            raise GuardFailed(
+                "LINKED_FINDING_GUARD_FAILED",
+                "expected revision, document source, finding binding, or an empty "
+                "placement did not hold",
             )
         return row
 

@@ -95,6 +95,14 @@ class CreateFindingRequest(BaseModel):
     confirmed_intended_comparison: bool = False
 
 
+class LinkedFindingRequest(BaseModel):
+    """Place a registered finding in a document with its approved card style."""
+
+    claim_id: str = Field(min_length=1, max_length=120)
+    card_style: str = Field(min_length=1, max_length=32)
+    expected_context_revision: int
+
+
 class StageReviewRequest(BaseModel):
     """A typed intent frame. The raw request stays visible beside it."""
 

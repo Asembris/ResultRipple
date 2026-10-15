@@ -30,6 +30,7 @@ from .models import (
     ApprovalRequest,
     CreateFindingRequest,
     DemoSessionRequest,
+    LinkedFindingRequest,
     RejectionRequest,
     ReleaseRequest,
     ReviewerAssignmentRequest,
@@ -165,6 +166,25 @@ async def create_finding(
             comparison_id=body.comparison_id,
             expected_revision=body.expected_context_revision,
             confirmed=body.confirmed_intended_comparison,
+        )
+    except (WorkflowRefused, EngineHold, GraphUnavailable) as exc:
+        raise _fail(exc) from exc
+
+
+@router.post("/documents/{document_id}/linked-findings", tags=["authoring"])
+async def insert_linked_finding(
+    document_id: str, body: LinkedFindingRequest, actor: ActorDep, graph: GraphDep
+) -> dict[str, Any]:
+    """Create or reuse the finding's placement and update the block inventory."""
+    try:
+        return await _offload(
+            service.insert_linked_finding,
+            graph,
+            actor=actor,
+            document_id=document_id,
+            claim_id=body.claim_id,
+            card_style=body.card_style,
+            expected_revision=body.expected_context_revision,
         )
     except (WorkflowRefused, EngineHold, GraphUnavailable) as exc:
         raise _fail(exc) from exc
