@@ -1,8 +1,10 @@
 import PublishingDeskLegacy from "./PublishingDesk";
 import RefusalCard from "./RefusalCard";
 import ReviewPaneLegacy from "./ReviewPane";
+import AuthorityStage from "./stages/AuthorityStage";
 import CorrectionStage from "./stages/CorrectionStage";
 import DeskStage from "./stages/DeskStage";
+import FreshApprovalStage from "./stages/FreshApprovalStage";
 import InvestigationStage from "./stages/InvestigationStage";
 import ReviewStage from "./stages/ReviewStage";
 import type { StageContext } from "./stages/context";
@@ -35,6 +37,10 @@ export default function WorkflowPanel({ context }: { context: StageContext }) {
         <InvestigationStage context={context} />
       ) : step === 4 ? (
         <ReviewStage context={context} />
+      ) : step === 5 ? (
+        <AuthorityStage context={context} />
+      ) : step === 6 ? (
+        <FreshApprovalStage context={context} />
       ) : (
         <div className="rr-legacy">
           <p className="rr-mono">
@@ -51,7 +57,9 @@ export default function WorkflowPanel({ context }: { context: StageContext }) {
         </div>
       )}
 
-      {refusal && <RefusalCard refusal={refusal} onDismiss={context.dismissRefusal} />}
+      {refusal && step !== 6 && (
+        <RefusalCard refusal={refusal} onDismiss={context.dismissRefusal} />
+      )}
 
       {currentStep > step && (
         <button
