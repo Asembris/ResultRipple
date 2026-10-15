@@ -101,3 +101,19 @@ def sam(seeded) -> TestClient:
 @pytest.fixture()
 def operator(seeded) -> TestClient:
     return session_for(domain.PERSON_OPERATOR)
+
+
+@pytest.fixture()
+def placeholder_model_credential(monkeypatch):
+    """Make the model look configured without configuring one.
+
+    The scripted agent suites supply their own completions, so they need the
+    admission gate open but no credential. A real key is left alone, and this
+    stays a fixture rather than an environment default so the real-inference
+    module in `test_agent_live.py` still evaluates `model_configured` at import
+    time and skips honestly when no key is set.
+    """
+    settings = get_settings()
+    if not settings.model_configured:
+        monkeypatch.setattr(settings, "nvidia_api_key", "placeholder-not-a-real-key")
+    return settings

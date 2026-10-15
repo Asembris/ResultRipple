@@ -27,6 +27,11 @@ ARI = Actor("person-ari", "Ari Mensah", "analyst", False)
 REQUEST = "Update the reports, but keep South as the cheaper option in the rollout memo."
 
 
+@pytest.fixture(autouse=True)
+def _model_looks_configured(placeholder_model_credential):
+    """Inference is scripted here, so the run only needs the gate open."""
+
+
 # -- a scripted completion endpoint -------------------------------------------
 
 

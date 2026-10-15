@@ -62,6 +62,11 @@ def _await_terminal(http, job_id: str, *, attempts: int = 60) -> dict[str, Any]:
     pytest.fail(f"job {job_id} never reached a terminal state")
 
 
+@pytest.fixture(autouse=True)
+def _model_looks_configured(placeholder_model_credential):
+    """Inference is scripted here, so the run only needs the gate open."""
+
+
 # -- admission ----------------------------------------------------------------
 
 
