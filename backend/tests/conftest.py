@@ -39,7 +39,7 @@ from app import domain  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.deps import get_artifact_store, get_dataset_path, get_graph_client  # noqa: E402
 from app.main import app  # noqa: E402
-from scripts import seed_demo  # noqa: E402
+from app import seed as seed_demo  # noqa: E402
 
 from . import helpers  # noqa: E402
 
