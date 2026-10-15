@@ -53,6 +53,7 @@ replace a current relationship query.
 (Comparison)-[:OWNED_BY]->(Person)                 metric owner
 
 (Claim)-[:BASED_ON]->(Comparison)                  human-approved binding
+(Claim)-[:APPROVED_BY]->(Person)                   the analyst who confirmed it
 (Occurrence)-[:OF_CLAIM]->(Claim)
 (Occurrence)-[:IN_DOCUMENT]->(Document)
 (Document)-[:OWNED_BY]->(Person)                   editorial owner
@@ -100,9 +101,33 @@ a stale supported statement.
 ## Context revision
 
 `Workspace.context_revision` increments on real company and evidence changes:
-applying a correction, changing the reviewer assignment, and committing a
-release with its decision disposition. Staging a plan does **not** increment it,
-because planning must not invalidate itself.
+applying a correction, changing the reviewer assignment, committing a release
+with its decision disposition, and each authoring write (registering a finding,
+placing it in a document, recording a decision basis). Staging a plan does
+**not** increment it, because planning must not invalidate itself.
+
+## Authoring
+
+A finding is registered, placed and recorded as a basis only through three
+analyst actions, each one guarded mutation keyed by a stable ID (queries H1 to
+H3 in `queries.md`):
+
+- `claim-{comparison_id}`: one approved finding per comparison, with the
+  confirmation statement and a server-computed witness of what was shown.
+- `occ-{document}-{comparison}` with block `finding-{claim_id}`: one placement
+  per document. The occurrence, its two edges, the document's new source blocks,
+  its source revision and source hash change in the same write, so registered
+  cards and authored finding blocks never disagree.
+- `(Decision)-[:BASED_ON]->(Claim)`: recorded only when the finding already
+  sits in the document that carries the decision block, and never beside an
+  existing basis.
+
+A retry returns the existing record and writes nothing. A request made against
+a revision the analyst did not see is refused with `STALE_REVISION`.
+
+The verification scope statement in every edition and receipt is counted from
+the inventory actually checked (registered occurrences and typed decision
+blocks), so a one-card package states one, never two.
 
 ## FalkorDB 6.0.2 compatibility notes
 
