@@ -67,6 +67,14 @@ export interface Comparison {
   relation: Relation;
   magnitude_cents: number;
   hold_reason: string | null;
+  /** The facts the analyst confirms before registering a finding. */
+  dataset_id?: string;
+  dataset_title?: string | null;
+  dataset_sha?: string;
+  unit?: string;
+  /** Rendered by the server's closed grammar; the browser writes no sentence. */
+  sentence?: string;
+  finding_title?: string;
 }
 
 export interface Batch {
@@ -102,6 +110,24 @@ export interface DocumentScope {
   owner_name: string | null;
   blocks: SourceBlock[];
   occurrences: OccurrenceRef[];
+  /** The one card style the server accepts for a linked finding here. */
+  approved_card_style?: "DOLLARS" | "CENTS" | null;
+  has_decision_block?: boolean;
+}
+
+/** A registered finding: an approved claim and every place it is used. */
+export interface Finding {
+  claim_id: string;
+  title: string;
+  approved_by: string | null;
+  approved_at: string | null;
+  comparison_ids: string[];
+  occurrences: {
+    occurrence_id: string;
+    document_id: string;
+    card_style: "DOLLARS" | "CENTS";
+    block_id: string;
+  }[];
 }
 
 export interface TypedAssertion {
@@ -285,6 +311,7 @@ export interface Workspace {
   scope: DocumentScope[];
   assessment: Assessment[];
   decision: Decision | null;
+  findings?: Finding[];
   cases: CorrectionCase[];
   current_release: Release | null;
   releases: ReleaseSummary[];

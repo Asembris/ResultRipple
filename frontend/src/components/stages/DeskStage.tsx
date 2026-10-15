@@ -1,13 +1,20 @@
+import { authoringOpen } from "../../workflow";
+import AuthoringPanel from "./AuthoringPanel";
 import type { StageContext } from "./context";
 
 /**
  * Step 1 — the publishing desk.
  *
  * The finding sentence shown here is the one the current editions actually
- * publish (`assessment[].previous.text`), not a recomputed one.
+ * publish (`assessment[].previous.text`), not a recomputed one. Before an
+ * authoring-start workspace has its first edition, the desk is the authoring
+ * panel instead.
  */
 export default function DeskStage({ context }: { context: StageContext }) {
   const { workspace, kase } = context;
+  // An authoring-start workspace has nothing published to describe yet.
+  if (authoringOpen(workspace)) return <AuthoringPanel context={context} />;
+
   const published =
     workspace.assessment[0]?.previous?.text ?? workspace.assessment[0]?.current.text ?? null;
   const release = workspace.current_release;

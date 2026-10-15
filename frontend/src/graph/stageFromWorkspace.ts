@@ -296,6 +296,7 @@ export function stageFromWorkspace(
   };
 }
 
+
 /** Map known ids to fixed visual slots, then fill the rest in order. */
 function resolveSlots(
   all: string[],

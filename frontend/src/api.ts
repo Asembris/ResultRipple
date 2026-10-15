@@ -91,6 +91,57 @@ export const applyCorrection = (caseId: string, batchIds: string[], revision: nu
     },
   );
 
+/**
+ * Register the displayed comparison as an approved finding. The body names the
+ * comparison, the revision the analyst saw and the explicit confirmation; the
+ * server writes the finding's title and every sentence rendered from it.
+ */
+export const createFinding = (comparisonId: string, revision: number, confirmed: boolean) =>
+  request<{ claim_id: string; context_revision: number; reused: boolean }>("/findings", {
+    method: "POST",
+    body: JSON.stringify({
+      comparison_id: comparisonId,
+      expected_context_revision: revision,
+      confirmed_intended_comparison: confirmed,
+    }),
+  });
+
+export const insertLinkedFinding = (
+  documentId: string,
+  claimId: string,
+  cardStyle: string,
+  revision: number,
+) =>
+  request<{ occurrence_id: string; context_revision: number; reused: boolean }>(
+    `/documents/${documentId}/linked-findings`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        claim_id: claimId,
+        card_style: cardStyle,
+        expected_context_revision: revision,
+      }),
+    },
+  );
+
+export const recordDecisionBasis = (
+  decisionId: string,
+  claimId: string,
+  revision: number,
+  confirmed: boolean,
+) =>
+  request<{ decision_id: string; claim_id: string; context_revision: number; reused: boolean }>(
+    `/decisions/${decisionId}/basis`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        claim_id: claimId,
+        expected_context_revision: revision,
+        confirmed_basis: confirmed,
+      }),
+    },
+  );
+
 export interface StageIntent {
   raw_request: string;
   goal: string;
@@ -127,7 +178,10 @@ export const refreshReview = (caseId: string) =>
 
 export const fetchPlan = (planId: string) => request<Plan>(`/plans/${planId}`);
 
-export const approvePlan = (plan: Plan, acknowledged: boolean) =>
+export const approvePlan = (
+  plan: Pick<Plan, "plan_id" | "version" | "execution_fingerprint">,
+  acknowledged: boolean,
+) =>
   request<Plan>(`/plans/${plan.plan_id}/approve`, {
     method: "POST",
     body: JSON.stringify({

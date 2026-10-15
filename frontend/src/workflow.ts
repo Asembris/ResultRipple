@@ -24,8 +24,23 @@ export const STEP_NAMES = [
 
 export type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
+/** An authoring-start workspace's first edition. It is not a correction. */
+export const INITIAL_PUBLICATION_REF = "INITIAL-PUBLICATION";
+
 export function activeCase(ws: Workspace): CorrectionCase | null {
   return ws.cases.find((entry) => entry.source_ref === CASE_REF) ?? null;
+}
+
+export function initialPublicationCase(ws: Workspace): CorrectionCase | null {
+  return ws.cases.find((entry) => entry.source_ref === INITIAL_PUBLICATION_REF) ?? null;
+}
+
+/**
+ * True while an authoring-start workspace has no edition yet. The desk then
+ * shows authoring and the initial publication instead of a published package.
+ */
+export function authoringOpen(ws: Workspace): boolean {
+  return initialPublicationCase(ws) !== null && ws.current_release === null;
 }
 
 export function latestPlanSummary(kase: CorrectionCase | null): PlanSummary | null {
