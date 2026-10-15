@@ -1,8 +1,7 @@
-import { useState } from "react";
-
 import { approvePlan, issueRelease, refreshReview } from "../../api";
 import RefusalCard from "../RefusalCard";
 import type { StageContext } from "./context";
+import { useAcknowledgement } from "./useAcknowledgement";
 
 /**
  * Step 6 — the refused release, the fresh plan, and the new approval.
@@ -14,7 +13,7 @@ import type { StageContext } from "./context";
  */
 export default function FreshApprovalStage({ context }: { context: StageContext }) {
   const { workspace, plan, priorPlan, actor, busy, refusal, kase } = context;
-  const [acknowledged, setAcknowledged] = useState(false);
+  const [acknowledged, setAcknowledged] = useAcknowledgement(actor, plan);
 
   if (!plan || !kase) return null;
 

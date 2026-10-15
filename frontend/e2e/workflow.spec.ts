@@ -99,8 +99,20 @@ test("the correction, review and download run on real data", async ({ page }) =>
   await panel(page).getByRole("button", { name: /Approve revision as/ }).click();
   await expect(page.getByText("ALTERNATIVE_NOT_ACKNOWLEDGED")).toBeVisible();
 
-  // 5. Acknowledged, the assigned reviewer's approval is recorded.
-  await panel(page).getByText(/I acknowledge the proposed alternative/).click();
+  // 5. The acknowledgement belongs to the person who gave it. Switching identity
+  //    on the same page must not carry one reviewer's tick to the next.
+  const ack = panel(page).getByRole("checkbox", {
+    name: /I acknowledge the proposed alternative/,
+  });
+  await ack.check();
+  await expect(ack).toBeChecked();
+  await signIn(page, "Sam Oyelaran");
+  await expect(ack).not.toBeChecked();
+
+  // 6. Acknowledged by the assigned reviewer, the approval is recorded.
+  await signIn(page, "Noor Haddad");
+  await expect(ack).not.toBeChecked();
+  await ack.check();
   await panel(page).getByRole("button", { name: /Approve revision as/ }).click();
   await expect(panel(page).getByText(/^Approved by /)).toBeVisible({ timeout: 30_000 });
 });

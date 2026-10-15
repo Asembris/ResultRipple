@@ -1,8 +1,7 @@
-import { useState } from "react";
-
 import { approvePlan, rejectPlan } from "../../api";
 import { money } from "../../workflow";
 import type { StageContext } from "./context";
+import { useAcknowledgement } from "./useAcknowledgement";
 
 /**
  * Step 4 — the assigned reviewer's decision.
@@ -14,7 +13,7 @@ import type { StageContext } from "./context";
  */
 export default function ReviewStage({ context }: { context: StageContext }) {
   const { workspace, plan, actor, busy } = context;
-  const [acknowledged, setAcknowledged] = useState(false);
+  const [acknowledged, setAcknowledged] = useAcknowledgement(actor, plan);
 
   if (!plan) return null;
 
