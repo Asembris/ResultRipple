@@ -29,3 +29,9 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The readiness check spends five inference budgets and depends on provider
+# latency, so it is run deliberately rather than on every suite run.
+addopts = "-m 'not readiness'"
+markers = [
+    "readiness: repeated real-inference latency measurement, deselected by default",
+]
