@@ -1167,20 +1167,6 @@
   .rr-strip__bar { transition: none; }
 }
 
-/* ---- transitional: stages still rendering the previous components -------- */
-/* Deleted once every stage is ported (M8). */
-.rr-legacy { display: flex; flex-direction: column; gap: 18px; }
-.rr-legacy .page { max-width: none; margin: 0; padding: 0; }
-.rr-legacy .panel { background: var(--rr-card); border: 1px solid var(--rr-hairline); border-radius: var(--rr-radius-sm); padding: 18px 20px; margin: 0; }
-.rr-legacy h2, .rr-legacy h3, .rr-legacy h4 { color: var(--rr-ink); font-family: var(--rr-serif); font-weight: 400; }
-.rr-legacy p, .rr-legacy li, .rr-legacy td, .rr-legacy th, .rr-legacy dd, .rr-legacy dt { color: var(--rr-ink-2); }
-.rr-legacy .card { background: transparent; border: 1px solid var(--rr-hairline); padding: 14px 16px; margin: 10px 0; }
-.rr-legacy button { background: var(--rr-amber); color: var(--rr-amber-ink); border: none; border-radius: var(--rr-radius-sm); padding: 10px 14px; font: 600 13px/1 var(--rr-sans); }
-.rr-legacy button.secondary { background: transparent; border: 1px solid var(--rr-hairline-strong); color: var(--rr-ink); }
-.rr-legacy button:disabled { background: var(--rr-disabled); }
-.rr-legacy a { color: var(--rr-amber); }
-.rr-legacy .meta, .rr-legacy .unassessed, .rr-legacy .label, .rr-legacy .hint { color: var(--rr-ink-3); font-family: var(--rr-mono); }
-
 .rr-paper__loading {
   flex: 1;
   min-height: 240px;
