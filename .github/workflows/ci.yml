@@ -1,9 +1,10 @@
 name: CI
 
-# Three independent jobs run in parallel on every pull request into main and on
-# demand. Nothing here is allowed to pass by being skipped: the backend suite
-# needs a real FalkorDB, and the browser suite drives the real API, the real
-# graph and the real rendered editions.
+# Three independent jobs run in parallel on every pull request into main, on
+# every push to main, and on demand. A superseded pull-request run is cancelled;
+# a run for a commit on main always finishes. Nothing here is allowed to pass by
+# being skipped: the backend suite needs a real FalkorDB, and the browser suite
+# drives the real API, the real graph and the real rendered editions.
 #
 # No NVIDIA credential is configured in GitHub, and this repository is going to
 # be public, so the browser suite reads GET /ready and takes the product's own
@@ -11,6 +12,8 @@ name: CI
 # the log rather than implying that inference was exercised.
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -20,7 +23,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   FALKORDB_HOST: 127.0.0.1
