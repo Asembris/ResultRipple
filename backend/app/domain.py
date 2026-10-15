@@ -48,6 +48,9 @@ TEMPLATE_VERSION = "tpl-1"
 ALLOWED_METRIC_KEYS = frozenset({"MEAN_COST_V1"})
 ALLOWED_CARD_STYLES = frozenset({"DOLLARS", "CENTS"})
 
+# What the analyst confirms. Recorded on the graph beside the approval itself.
+FINDING_APPROVAL_STATEMENT = "This is the intended comparison."
+
 # The permitted factual grammar is deliberately finite.
 RELATION_LOWER = "LOWER_COST"
 RELATION_HIGHER = "HIGHER_COST"

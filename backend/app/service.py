@@ -22,9 +22,13 @@ from .artifacts import ArtifactStore, RenderedPackage, render_package
 from .engine import (
     CaseContext,
     EngineHold,
+    compute_comparison,
     content_identity,
     execution_identity,
     load_case_context,
+    load_comparison,
+    load_evidence,
+    typed_assertion,
     validate_intent,
 )
 from .graph import WORKSPACE_LOCK, GraphClient, GuardFailed
@@ -810,6 +814,195 @@ def reassign_reviewer(
             "context_revision": int(changed["context_revision"]),
             "source": "demo-operator-rota-change",
             "operator_id": actor.person_id,
+        }
+
+
+# -- authoring ----------------------------------------------------------------
+#
+# The analyst registers a finding from a displayed comparison, places it in
+# documents, and records it as a decision basis. Each is one guarded graph
+# write keyed by a stable ID: a retry returns what is already there and writes
+# nothing, and a request against a revision the analyst did not see is refused.
+
+
+def _require_analyst(actor: Actor, action: str) -> None:
+    if actor.demo_role != "analyst":
+        raise WorkflowRefused(
+            "NOT_AUTHORIZED", f"only the analyst can {action}", http_status=403
+        )
+
+
+def _require_revision(graph: GraphClient, expected_revision: int) -> int:
+    current = int(graph.workspace(domain.WORKSPACE_ID)["context_revision"])
+    if current != expected_revision:
+        raise WorkflowRefused(
+            "STALE_REVISION",
+            "the workspace changed since this view was loaded; reload and confirm again",
+            context={
+                "expected_context_revision": expected_revision,
+                "current_context_revision": current,
+            },
+        )
+    return current
+
+
+def _finding_records(graph: GraphClient) -> dict[str, dict[str, Any]]:
+    """Registered findings keyed by claim, with every placement and binding edge."""
+    findings: dict[str, dict[str, Any]] = {}
+    for row in graph.findings():
+        entry = findings.setdefault(
+            row["claim_id"],
+            {
+                "claim_id": row["claim_id"],
+                "title": row["title"],
+                "approved_by": row["approved_by"],
+                "approved_at": row["approved_at"],
+                "comparison_ids": set(),
+                "binding_edges": set(),
+                "occurrences": {},
+            },
+        )
+        if row["binding_edge_id"] is not None:
+            entry["binding_edges"].add(row["binding_edge_id"])
+            entry["comparison_ids"].add(row["comparison_id"])
+        if row["occurrence_id"] is not None:
+            entry["occurrences"][row["occurrence_id"]] = {
+                "occurrence_id": row["occurrence_id"],
+                "document_id": row["document_id"],
+                "card_style": row["card_style"],
+                "block_id": row["block_id"],
+            }
+    return findings
+
+
+def finding_inventory(graph: GraphClient) -> list[dict[str, Any]]:
+    """The registry as the publishing desk shows it."""
+    return [
+        {
+            "claim_id": entry["claim_id"],
+            "title": entry["title"],
+            "approved_by": entry["approved_by"],
+            "approved_at": entry["approved_at"],
+            "comparison_ids": sorted(entry["comparison_ids"]),
+            "occurrences": sorted(
+                entry["occurrences"].values(), key=lambda occ: occ["occurrence_id"]
+            ),
+        }
+        for entry in sorted(_finding_records(graph).values(), key=lambda e: e["claim_id"])
+    ]
+
+
+def _approved_finding(graph: GraphClient, claim_id: str) -> dict[str, Any]:
+    finding = _finding_records(graph).get(claim_id)
+    if finding is None:
+        raise WorkflowRefused("FINDING_UNKNOWN", f"finding {claim_id}", http_status=404)
+    if len(finding["binding_edges"]) != 1:
+        raise WorkflowRefused(
+            "MISSING_PROVENANCE" if not finding["binding_edges"] else "DUPLICATE_PROVENANCE",
+            f"finding {claim_id} has {len(finding['binding_edges'])} comparison bindings",
+        )
+    return finding
+
+
+def comparison_preview(graph: GraphClient, csv_path: Path, comparison_id: str) -> dict[str, Any]:
+    """What the analyst is shown before confirming: all of it computed here."""
+    try:
+        definition = load_comparison(graph, comparison_id)
+    except EngineHold as exc:
+        if exc.code == "COMPARISON_MISSING":
+            raise WorkflowRefused(
+                "COMPARISON_UNKNOWN", f"comparison {comparison_id}", http_status=404
+            ) from exc
+        raise
+    evidence = load_evidence(graph, csv_path, definition.dataset_id)
+    return _comparison_facts(definition, evidence, compute_comparison(evidence, definition))
+
+
+def _comparison_facts(definition, evidence, result) -> dict[str, Any]:
+    """Dataset, both sides, metric, counts, unit and the generated sentence."""
+    assertion = typed_assertion(result, "DOLLARS")
+    return {
+        "comparison_id": definition.comparison_id,
+        "metric_key": definition.metric_key,
+        "min_n": definition.min_n,
+        "owner_id": definition.owner_id,
+        "owner_name": definition.owner_name,
+        "dataset_id": definition.dataset_id,
+        "dataset_title": definition.dataset_title,
+        "dataset_sha": evidence.raw_sha,
+        "left": result.left.as_dict(),
+        "right": result.right.as_dict(),
+        "relation": result.relation,
+        "magnitude_cents": result.magnitude_cents,
+        "hold_reason": result.hold_reason,
+        "unit": assertion["unit"],
+        "sentence": assertion["text"],
+        "finding_title": (
+            f"{definition.right_lane_name} versus {definition.left_lane_name} "
+            "mean cost per parcel"
+        ),
+    }
+
+
+def create_finding(
+    graph: GraphClient,
+    csv_path: Path,
+    *,
+    actor: Actor,
+    comparison_id: str,
+    expected_revision: int,
+    confirmed: bool,
+) -> dict[str, Any]:
+    """Register the approved finding the analyst confirmed against a comparison."""
+    _require_analyst(actor, "register a finding")
+    if not confirmed:
+        raise WorkflowRefused(
+            "BINDING_NOT_CONFIRMED",
+            "confirm that this is the intended comparison first",
+            http_status=400,
+        )
+    with WORKSPACE_LOCK:
+        preview = comparison_preview(graph, csv_path, comparison_id)
+        bound = [
+            entry
+            for entry in _finding_records(graph).values()
+            if comparison_id in entry["comparison_ids"]
+        ]
+        if len(bound) > 1:
+            raise WorkflowRefused(
+                "DUPLICATE_PROVENANCE", f"{len(bound)} findings are bound to {comparison_id}"
+            )
+        if bound:
+            current = int(graph.workspace(domain.WORKSPACE_ID)["context_revision"])
+            return {
+                "claim_id": bound[0]["claim_id"],
+                "comparison_id": comparison_id,
+                "title": bound[0]["title"],
+                "context_revision": current,
+                "reused": True,
+            }
+        _require_revision(graph, expected_revision)
+        claim_id = f"claim-{comparison_id}"
+        try:
+            row = graph.create_finding(
+                workspace_id=domain.WORKSPACE_ID,
+                comparison_id=comparison_id,
+                claim_id=claim_id,
+                title=preview["finding_title"],
+                actor_id=actor.person_id,
+                expected_revision=expected_revision,
+                approved_at=_now(),
+                statement=domain.FINDING_APPROVAL_STATEMENT,
+                witness=domain.canonical_json(preview),
+            )
+        except GuardFailed as exc:
+            raise WorkflowRefused(exc.code, exc.detail) from exc
+        return {
+            "claim_id": row["claim_id"],
+            "comparison_id": comparison_id,
+            "title": preview["finding_title"],
+            "context_revision": int(row["context_revision"]),
+            "reused": False,
         }
 
 

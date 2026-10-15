@@ -170,6 +170,7 @@ class ComparisonDefinition:
     right_lane_name: str
     owner_id: str | None
     owner_name: str | None
+    dataset_title: str | None = None
 
 
 def load_comparison(graph: GraphClient, comparison_id: str) -> ComparisonDefinition:
@@ -205,6 +206,7 @@ def load_comparison(graph: GraphClient, comparison_id: str) -> ComparisonDefinit
         right_lane_name=row["right_lane_name"],
         owner_id=row["owner_id"],
         owner_name=row["owner_name"],
+        dataset_title=row["dataset_title"],
     )
 
 

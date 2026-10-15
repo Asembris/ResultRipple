@@ -82,6 +82,19 @@ class ApplyCorrectionRequest(BaseModel):
     source_confirmed: bool = False
 
 
+class CreateFindingRequest(BaseModel):
+    """Register the displayed comparison as an approved finding.
+
+    It names a comparison and the revision the analyst saw, plus the explicit
+    confirmation. There is no free prose: the server writes the finding's title
+    and every sentence later rendered from it.
+    """
+
+    comparison_id: str = Field(min_length=1, max_length=120)
+    expected_context_revision: int
+    confirmed_intended_comparison: bool = False
+
+
 class StageReviewRequest(BaseModel):
     """A typed intent frame. The raw request stays visible beside it."""
 

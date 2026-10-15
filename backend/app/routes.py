@@ -28,6 +28,7 @@ from .models import (
     AgentRunRequest,
     ApplyCorrectionRequest,
     ApprovalRequest,
+    CreateFindingRequest,
     DemoSessionRequest,
     RejectionRequest,
     ReleaseRequest,
@@ -137,27 +138,35 @@ async def read_workspace(graph: GraphDep, csv_path: CsvDep) -> dict[str, Any]:
 async def read_comparison(
     comparison_id: str, graph: GraphDep, csv_path: CsvDep
 ) -> dict[str, Any]:
-    """Approved definition and live counts, computed from current graph state."""
-    from .engine import compute_comparison, load_comparison, load_evidence
+    """Approved definition and live counts, computed from current graph state.
 
-    def read() -> dict[str, Any]:
-        definition = load_comparison(graph, comparison_id)
-        evidence = load_evidence(graph, csv_path, definition.dataset_id)
-        result = compute_comparison(evidence, definition)
-        return {
-            "comparison_id": definition.comparison_id,
-            "metric_key": definition.metric_key,
-            "min_n": definition.min_n,
-            "owner_id": definition.owner_id,
-            "owner_name": definition.owner_name,
-            "dataset_id": definition.dataset_id,
-            "dataset_sha": evidence.raw_sha,
-            "result": result.as_dict(),
-        }
-
+    This is exactly what the analyst is shown before confirming a finding.
+    """
     try:
-        return await _offload(read)
-    except (GraphUnavailable, EngineHold) as exc:
+        return await _offload(service.comparison_preview, graph, csv_path, comparison_id)
+    except (WorkflowRefused, GraphUnavailable, EngineHold) as exc:
+        raise _fail(exc) from exc
+
+
+# -- authoring ----------------------------------------------------------------
+
+
+@router.post("/findings", tags=["authoring"])
+async def create_finding(
+    body: CreateFindingRequest, actor: ActorDep, graph: GraphDep, csv_path: CsvDep
+) -> dict[str, Any]:
+    """The analyst approves the displayed comparison as a reusable finding."""
+    try:
+        return await _offload(
+            service.create_finding,
+            graph,
+            csv_path,
+            actor=actor,
+            comparison_id=body.comparison_id,
+            expected_revision=body.expected_context_revision,
+            confirmed=body.confirmed_intended_comparison,
+        )
+    except (WorkflowRefused, EngineHold, GraphUnavailable) as exc:
         raise _fail(exc) from exc
 
 

@@ -229,7 +229,8 @@ class GraphClient:
             OPTIONAL MATCH (cmp)-[metric:OWNED_BY]->(owner:Person)
             RETURN cmp.id AS comparison_id, cmp.metric_key AS metric_key,
                    cmp.min_n AS min_n, cmp.display_precision AS display_precision,
-                   ds.id AS dataset_id, leftLane.id AS left_lane_id,
+                   ds.id AS dataset_id, ds.title AS dataset_title,
+                   leftLane.id AS left_lane_id,
                    leftLane.name AS left_lane_name, rightLane.id AS right_lane_id,
                    rightLane.name AS right_lane_name, owner.id AS owner_id,
                    owner.display_name AS owner_name,
@@ -490,6 +491,88 @@ class GraphClient:
             raise GuardFailed(
                 "CLARIFICATION_GUARD_FAILED",
                 "the case is not in a state where a question can be recorded",
+            )
+        return row
+
+    # -- authoring ------------------------------------------------------------
+
+    def findings(self) -> list[dict[str, Any]]:
+        """Every registered finding with its binding, approver and placements.
+
+        One row per (binding, occurrence) pair, edge identities included, so a
+        duplicate binding or an orphan placement stays visible to the caller.
+        """
+        return self.run(
+            """
+            MATCH (cl:Claim)
+            OPTIONAL MATCH (cl)-[binding:BASED_ON]->(cmp:Comparison)
+            OPTIONAL MATCH (cl)-[:APPROVED_BY]->(approver:Person)
+            OPTIONAL MATCH (occ:Occurrence)-[instance:OF_CLAIM]->(cl)
+            OPTIONAL MATCH (occ)-[:IN_DOCUMENT]->(doc:Document)
+            RETURN cl.id AS claim_id, cl.title AS title,
+                   cl.approved_at AS approved_at, approver.id AS approved_by,
+                   cmp.id AS comparison_id, ID(binding) AS binding_edge_id,
+                   occ.id AS occurrence_id, occ.card_style AS card_style,
+                   occ.block_id AS block_id, doc.id AS document_id,
+                   ID(instance) AS instance_edge_id
+            ORDER BY claim_id, occurrence_id
+            """
+        )
+
+    def create_finding(
+        self,
+        *,
+        workspace_id: str,
+        comparison_id: str,
+        claim_id: str,
+        title: str,
+        actor_id: str,
+        expected_revision: int,
+        approved_at: str,
+        statement: str,
+        witness: str,
+    ) -> dict[str, Any]:
+        """Register one approved finding bound to the displayed comparison.
+
+        Every guard -- revision, analyst identity, the comparison, no existing
+        binding to it, no clashing claim id -- precedes the first write, so a
+        retry can never create a second claim or a second binding.
+        """
+        row = self.run_one(
+            """
+            MATCH (w:Workspace {id:$workspace_id}),
+                  (cmp:Comparison {id:$comparison_id}),
+                  (analyst:Person {id:$actor_id})
+            WHERE w.context_revision = $expected_revision AND analyst.demo_role = 'analyst'
+            OPTIONAL MATCH (bound:Claim)-[:BASED_ON]->(cmp)
+            OPTIONAL MATCH (clash:Claim {id:$claim_id})
+            WITH w, cmp, analyst, count(DISTINCT bound) AS bindings,
+                 count(DISTINCT clash) AS clashes
+            WHERE bindings = 0 AND clashes = 0
+            CREATE (cl:Claim {id:$claim_id, definition_version:1, title:$title,
+                              approved_at:$approved_at, approval_statement:$statement,
+                              approval_witness:$witness})
+            CREATE (cl)-[:BASED_ON]->(cmp)
+            CREATE (cl)-[:APPROVED_BY]->(analyst)
+            SET w.context_revision = w.context_revision + 1
+            RETURN cl.id AS claim_id, w.context_revision AS context_revision
+            """,
+            {
+                "workspace_id": workspace_id,
+                "comparison_id": comparison_id,
+                "claim_id": claim_id,
+                "title": title,
+                "actor_id": actor_id,
+                "expected_revision": expected_revision,
+                "approved_at": approved_at,
+                "statement": statement,
+                "witness": witness,
+            },
+        )
+        if row is None:
+            raise GuardFailed(
+                "FINDING_GUARD_FAILED",
+                "expected revision, analyst identity, or an unbound comparison did not hold",
             )
         return row
 
