@@ -52,6 +52,22 @@ dispatch correction note. It then issues **Version 1 by running the real staging
 approval, verification and release path once**, with its approvals labelled demo setup.
 No corrected file, affected-document list, or reviewer answer is seeded.
 
+**Authoring-start workspace (tests and CI).** `--fresh` writes the same primitive facts
+into an *empty* graph, but with no claim, no occurrence, no finding block and no decision
+basis, and no edition. It refuses any graph that already holds nodes, so it never clears a
+workspace in use:
+
+```bash
+FALKORDB_GRAPH=rr_authoring .venv/Scripts/python -m scripts.seed_demo --fresh
+```
+
+The analyst then registers the finding, places it in both reports and records the basis
+through the UI, and the first edition is issued from the **Initial publication** case
+through the same staging, approval and release path as any revision. One API process
+serves one graph; the backend tests and the `e2e-authoring` CI job use this seed on their
+own graph. The deployed workspace's starting state, "demo setup" or "authoring start",
+will come from the operator reset planned in G3.
+
 ### 3. Start the API
 
 ```bash
@@ -184,7 +200,10 @@ If port 8000 is already taken, start Uvicorn elsewhere and point the dev proxy a
 | `POST /auth/demo-session` | Signs in a provisioned demo identity against its server-side passcode. Capability is then resolved from the graph, never from a request body. |
 | `POST /auth/sign-out` | Drops the session and returns to observing, which is read-only. |
 | `GET /workspace` | Current evidence, live comparison, registered scope, per-occurrence freshness, decision and current reviewer, cases and releases. |
-| `GET /comparisons/{id}` | Approved definition plus live counts and the exact result. |
+| `GET /comparisons/{id}` | What the analyst confirms: dataset, both sides, metric, sample counts, unit and the server-generated sentence, computed live. |
+| `POST /findings` | Analyst only. Registers the displayed comparison as an approved finding, given its ID, the revision the analyst saw and the explicit "This is the intended comparison" confirmation. No free prose. |
+| `POST /documents/{id}/linked-findings` | Analyst only. Creates or reuses the finding's one placement in a document, in that layout's approved style (dollars in the operations report, cents in the memo), and updates the source-block inventory in the same guarded write. |
+| `POST /decisions/{id}/basis` | Analyst only. Records an explicit, confirmed `Decision -[BASED_ON]-> Claim`; the finding must already sit in the document that carries the decision block. |
 | `POST /corrections/{case_id}/apply` | Analyst confirms the dispatch source; one guarded mutation moves exactly the recorded batches. |
 | `POST /cases/{case_id}/agent-runs` | Starts one bounded agent job from the analyst's own words. Persisted before any inference; `202` with a job id. |
 | `GET /jobs/{job_id}` | Real status, completed tool events, usage, elapsed time, errors and the resulting plan id. |
@@ -201,7 +220,9 @@ If port 8000 is already taken, start Uvicorn elsewhere and point the dev proxy a
 Refusals carry a stable code — `CORRECTION_SCOPE_MISMATCH`, `MISSING_PROVENANCE`,
 `DUPLICATE_PROVENANCE`, `NO_REVIEWER`, `AMBIGUOUS_REVIEWER`, `NOT_AUTHORIZED`,
 `ALTERNATIVE_NOT_ACKNOWLEDGED`, `STALE_PLAN`, `AUTHORITY_CHANGED`, `CANDIDATE_MISMATCH`,
-`VERIFICATION_FAILED`, `MODEL_NOT_CONFIGURED`, `AGENT_RUN_IN_FLIGHT`, `AGENT_BUSY` — plus
+`VERIFICATION_FAILED`, `MODEL_NOT_CONFIGURED`, `AGENT_RUN_IN_FLIGHT`, `AGENT_BUSY`,
+`STALE_REVISION`, `BINDING_NOT_CONFIRMED`, `BASIS_NOT_CONFIRMED`, `CARD_STYLE_NOT_ALLOWED`,
+`BASIS_REQUIRES_LINKED_FINDING`, `BASIS_ALREADY_RECORDED` — plus
 the witness the UI needs to explain them.
 
 ## Graph model and queries
@@ -292,6 +313,19 @@ actually staged with the independent verifier. Those skip when no credential is
 configured; the five-run latency measurement is marked `readiness` and deselected by
 default because it spends five inference budgets.
 
+Authoring has its own suites on a fresh workspace: the full authoring, first edition,
+correction, staging, approval and release path, with both issued files parsed for their
+typed cards and a graph query showing exactly 1 claim, 2 occurrences, 2 documents and 1
+basis link; and the refusals: an observer or reviewer authoring, an unknown comparison, a
+stale revision, a retried or duplicated write (including the Cypher guards on their own),
+an unsupported style, an unconfirmed binding or basis, and a missing source block that
+blocks staging and release.
+
+The browser suite has two Playwright projects, each needing its own workspace:
+`npm run test:e2e -- --project=workflow` against the demo-setup seed, and
+`npm run test:e2e -- --project=authoring` against a `--fresh` graph. CI runs them as the
+separate `e2e` and `e2e-authoring` jobs.
+
 Live-graph tests skip themselves when no FalkorDB is reachable, and refuse to run against
 the `resultripple` demo graph.
 
@@ -319,13 +353,15 @@ The complete manual vertical slice works end to end against real FalkorDB:
   and failing closed on stale approval or changed authority.
 - Immutable editions, a single current-release pointer, idempotent retries, and a run
   receipt; verified to survive a FalkorDB container restart.
+- Natural finding authoring: register the displayed comparison, insert the linked finding
+  into both reports, record the decision basis, and issue the initial publication, each a
+  single guarded and idempotent graph write behind the analyst's session.
 - A real NVIDIA tool-using agent that interprets the request, investigates through live
   graph queries, exposes the conflict between what was asked and what the evidence
   supports, and stages a reviewable alternative — or asks one question instead. Bounded
   jobs, honest failure states, and an unfinished run marked interrupted after a restart.
 
-Not implemented yet: finding creation and reuse through the UI, the
-reviewer-reassignment and review-refresh *interface* (the API, its guards and its tests
+Not implemented yet: the reviewer-reassignment and review-refresh *interface* (the API, its guards and its tests
 already exist, because the release guard depends on them), the final production UI, and
 deployment. Those arrive on later feature branches.
 

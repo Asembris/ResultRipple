@@ -170,6 +170,7 @@ class ComparisonDefinition:
     right_lane_name: str
     owner_id: str | None
     owner_name: str | None
+    dataset_title: str | None = None
 
 
 def load_comparison(graph: GraphClient, comparison_id: str) -> ComparisonDefinition:
@@ -205,6 +206,7 @@ def load_comparison(graph: GraphClient, comparison_id: str) -> ComparisonDefinit
         right_lane_name=row["right_lane_name"],
         owner_id=row["owner_id"],
         owner_name=row["owner_name"],
+        dataset_title=row["dataset_title"],
     )
 
 
@@ -398,6 +400,13 @@ class PackageScope:
     @property
     def occurrences(self) -> tuple[OccurrenceRecord, ...]:
         return tuple(occ for doc in self.documents for occ in doc.occurrences)
+
+    def verification_scope(self) -> str:
+        """The scope statement for exactly this inventory of registered blocks."""
+        return domain.verification_scope_statement(
+            len(self.occurrences),
+            sum(1 for doc in self.documents for b in doc.blocks if b["kind"] == "decision"),
+        )
 
     def document(self, document_id: str) -> DocumentRecord:
         for doc in self.documents:

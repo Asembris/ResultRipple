@@ -28,7 +28,10 @@ from .models import (
     AgentRunRequest,
     ApplyCorrectionRequest,
     ApprovalRequest,
+    CreateFindingRequest,
+    DecisionBasisRequest,
     DemoSessionRequest,
+    LinkedFindingRequest,
     RejectionRequest,
     ReleaseRequest,
     ReviewerAssignmentRequest,
@@ -137,27 +140,73 @@ async def read_workspace(graph: GraphDep, csv_path: CsvDep) -> dict[str, Any]:
 async def read_comparison(
     comparison_id: str, graph: GraphDep, csv_path: CsvDep
 ) -> dict[str, Any]:
-    """Approved definition and live counts, computed from current graph state."""
-    from .engine import compute_comparison, load_comparison, load_evidence
+    """Approved definition and live counts, computed from current graph state.
 
-    def read() -> dict[str, Any]:
-        definition = load_comparison(graph, comparison_id)
-        evidence = load_evidence(graph, csv_path, definition.dataset_id)
-        result = compute_comparison(evidence, definition)
-        return {
-            "comparison_id": definition.comparison_id,
-            "metric_key": definition.metric_key,
-            "min_n": definition.min_n,
-            "owner_id": definition.owner_id,
-            "owner_name": definition.owner_name,
-            "dataset_id": definition.dataset_id,
-            "dataset_sha": evidence.raw_sha,
-            "result": result.as_dict(),
-        }
-
+    This is exactly what the analyst is shown before confirming a finding.
+    """
     try:
-        return await _offload(read)
-    except (GraphUnavailable, EngineHold) as exc:
+        return await _offload(service.comparison_preview, graph, csv_path, comparison_id)
+    except (WorkflowRefused, GraphUnavailable, EngineHold) as exc:
+        raise _fail(exc) from exc
+
+
+# -- authoring ----------------------------------------------------------------
+
+
+@router.post("/findings", tags=["authoring"])
+async def create_finding(
+    body: CreateFindingRequest, actor: ActorDep, graph: GraphDep, csv_path: CsvDep
+) -> dict[str, Any]:
+    """The analyst approves the displayed comparison as a reusable finding."""
+    try:
+        return await _offload(
+            service.create_finding,
+            graph,
+            csv_path,
+            actor=actor,
+            comparison_id=body.comparison_id,
+            expected_revision=body.expected_context_revision,
+            confirmed=body.confirmed_intended_comparison,
+        )
+    except (WorkflowRefused, EngineHold, GraphUnavailable) as exc:
+        raise _fail(exc) from exc
+
+
+@router.post("/documents/{document_id}/linked-findings", tags=["authoring"])
+async def insert_linked_finding(
+    document_id: str, body: LinkedFindingRequest, actor: ActorDep, graph: GraphDep
+) -> dict[str, Any]:
+    """Create or reuse the finding's placement and update the block inventory."""
+    try:
+        return await _offload(
+            service.insert_linked_finding,
+            graph,
+            actor=actor,
+            document_id=document_id,
+            claim_id=body.claim_id,
+            card_style=body.card_style,
+            expected_revision=body.expected_context_revision,
+        )
+    except (WorkflowRefused, EngineHold, GraphUnavailable) as exc:
+        raise _fail(exc) from exc
+
+
+@router.post("/decisions/{decision_id}/basis", tags=["authoring"])
+async def record_decision_basis(
+    decision_id: str, body: DecisionBasisRequest, actor: ActorDep, graph: GraphDep
+) -> dict[str, Any]:
+    """An explicit, analyst-confirmed basis. Never inferred from nearby prose."""
+    try:
+        return await _offload(
+            service.record_decision_basis,
+            graph,
+            actor=actor,
+            decision_id=decision_id,
+            claim_id=body.claim_id,
+            expected_revision=body.expected_context_revision,
+            confirmed=body.confirmed_basis,
+        )
+    except (WorkflowRefused, EngineHold, GraphUnavailable) as exc:
         raise _fail(exc) from exc
 
 

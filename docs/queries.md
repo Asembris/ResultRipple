@@ -164,6 +164,85 @@ No evidence or document content changes. A previously valid approval becomes
 unusable (`AUTHORITY_CHANGED`) and a fresh plan version plus fresh approval are
 required, even though the candidate bytes are identical.
 
+## H. Authoring: three guarded mutations
+
+Every guard precedes the first write clause, and each write is keyed by a
+stable ID, so a retry can never double an edge or a card.
+
+**H1. Register a finding from the displayed comparison**
+
+```cypher
+MATCH (w:Workspace {id:$workspace_id}),
+      (cmp:Comparison {id:$comparison_id}),
+      (analyst:Person {id:$actor_id})
+WHERE w.context_revision = $expected_revision AND analyst.demo_role = 'analyst'
+OPTIONAL MATCH (bound:Claim)-[:BASED_ON]->(cmp)
+OPTIONAL MATCH (clash:Claim {id:$claim_id})
+WITH w, cmp, analyst, count(DISTINCT bound) AS bindings,
+     count(DISTINCT clash) AS clashes
+WHERE bindings = 0 AND clashes = 0
+CREATE (cl:Claim {id:$claim_id, definition_version:1, title:$title,
+                  approved_at:$approved_at, approval_statement:$statement,
+                  approval_witness:$witness})
+CREATE (cl)-[:BASED_ON]->(cmp)
+CREATE (cl)-[:APPROVED_BY]->(analyst)
+SET w.context_revision = w.context_revision + 1
+RETURN cl.id AS claim_id, w.context_revision AS context_revision
+```
+
+**H2. Place the finding in a document and update its block inventory**
+
+```cypher
+MATCH (w:Workspace {id:$workspace_id}),
+      (doc:Document {id:$document_id}),
+      (cl:Claim {id:$claim_id})-[binding:BASED_ON]->(:Comparison)
+WHERE w.context_revision = $expected_revision
+  AND doc.source_revision = $expected_source_revision
+  AND doc.source_sha = $expected_source_sha
+OPTIONAL MATCH (placed:Occurrence)-[:OF_CLAIM]->(cl), (placed)-[:IN_DOCUMENT]->(doc)
+OPTIONAL MATCH (clash:Occurrence {id:$occurrence_id})
+WITH w, doc, cl, count(DISTINCT binding) AS bindings,
+     count(DISTINCT placed) AS here, count(DISTINCT clash) AS clashes
+WHERE bindings = 1 AND here = 0 AND clashes = 0
+CREATE (occ:Occurrence {id:$occurrence_id, card_style:$card_style,
+                        block_id:$block_id, original_assertion:'',
+                        registered_by:$actor_id, registered_at:$registered_at})
+CREATE (occ)-[:OF_CLAIM]->(cl)
+CREATE (occ)-[:IN_DOCUMENT]->(doc)
+SET doc.source_blocks = $source_blocks,
+    doc.source_sha = $source_sha,
+    doc.source_revision = doc.source_revision + 1,
+    w.context_revision = w.context_revision + 1
+RETURN occ.id AS occurrence_id, doc.source_revision AS source_revision,
+       w.context_revision AS context_revision
+```
+
+The style is checked before the write: it must be the layout's approved style
+(`DOLLARS` for the operations report, `CENTS` for the memo).
+
+**H3. Record the decision basis**
+
+```cypher
+MATCH (w:Workspace {id:$workspace_id}),
+      (decision:Decision {id:$decision_id}),
+      (cl:Claim {id:$claim_id})-[:BASED_ON]->(:Comparison),
+      (occ:Occurrence)-[:OF_CLAIM]->(cl),
+      (occ)-[:IN_DOCUMENT]->(:Document {id:$decision_document_id})
+WHERE w.context_revision = $expected_revision
+OPTIONAL MATCH (decision)-[existing:BASED_ON]->(:Claim)
+WITH w, decision, cl, count(DISTINCT existing) AS bases
+WHERE bases = 0
+CREATE (decision)-[:BASED_ON {recorded_by:$actor_id, recorded_at:$recorded_at,
+                              statement:$statement}]->(cl)
+SET w.context_revision = w.context_revision + 1
+RETURN decision.id AS decision_id, cl.id AS claim_id,
+       w.context_revision AS context_revision
+```
+
+After authoring, correction impact (query B) finds the authored claim, both
+occurrences and the decision by traversal from the case's affected lanes. No
+document list is supplied anywhere.
+
 ## Running them yourself
 
 ```bash

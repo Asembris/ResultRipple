@@ -1,16 +1,22 @@
 name: CI
 
-# Three independent jobs run in parallel on every pull request into main and on
-# demand. Nothing here is allowed to pass by being skipped: the backend suite
-# needs a real FalkorDB, and the browser suite drives the real API, the real
-# graph and the real rendered editions.
+# Four independent jobs run in parallel on every pull request into main, on
+# every push to main, and on demand. A superseded pull-request run is cancelled;
+# a run for a commit on main always finishes. Nothing here is allowed to pass by
+# being skipped: the backend suite needs a real FalkorDB, and the browser suite
+# drives the real API, the real graph and the real rendered editions.
 #
 # No NVIDIA credential is configured in GitHub, and this repository is going to
 # be public, so the browser suite reads GET /ready and takes the product's own
 # labelled manual fallback when there is no agent to run. It says so plainly in
 # the log rather than implying that inference was exercised.
+#
+# The authoring browser suite runs in its own job, with its own FalkorDB, against
+# a fresh authoring-start workspace. It involves no agent at all.
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -20,7 +26,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   FALKORDB_HOST: 127.0.0.1
@@ -204,13 +210,143 @@ jobs:
 
       - name: Run the browser suite
         working-directory: frontend
-        run: npm run test:e2e
+        run: npm run test:e2e -- --project=workflow
 
       - name: Collect failure evidence
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-failure
+          path: |
+            frontend/test-results
+            ${{ runner.temp }}/api.log
+            ${{ runner.temp }}/vite.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  e2e-authoring:
+    name: e2e-authoring (playwright, fresh workspace)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    services:
+      falkordb:
+        image: falkordb/falkordb:6.0.2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli PING"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      APP_ENV: development
+      RR_BASE_URL: http://localhost:5173
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -r backend/requirements.txt
+          npm ci --prefix frontend
+
+      - name: Cache the Playwright browser
+        id: browser-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      # Throwaway credentials, generated here and masked, so no passcode is
+      # stored in the repository or in GitHub and none reaches the log.
+      - name: Generate demo passcodes for this run
+        run: |
+          pairs=""
+          for entry in ARI:person-ari NOOR:person-noor SAM:person-sam OPERATOR:person-operator; do
+            label="${entry%%:*}"
+            person="${entry##*:}"
+            value="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+            echo "::add-mask::${value}"
+            echo "RR_PASSCODE_${label}=${value}" >> "$GITHUB_ENV"
+            pairs="${pairs:+${pairs},}${person}=${value}"
+          done
+          echo "DEMO_PASSCODES=${pairs}" >> "$GITHUB_ENV"
+
+      # An authoring-start workspace: no finding, occurrence, decision basis or
+      # edition. The suite authors all of it and issues the first edition through
+      # the real staging, approval and release path. No agent is involved.
+      - name: Seed a fresh workspace
+        working-directory: backend
+        run: python -m scripts.seed_demo --fresh
+
+      - name: Start the API
+        working-directory: backend
+        run: |
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 \
+            > "$RUNNER_TEMP/api.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8000/ready > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "the API never became ready"
+          tail -n 50 "$RUNNER_TEMP/api.log"
+          exit 1
+
+      - name: Start the Vite server
+        working-directory: frontend
+        run: |
+          nohup npm run dev -- --port 5173 --strictPort > "$RUNNER_TEMP/vite.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -sf http://localhost:5173/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "the Vite server never came up"
+          tail -n 50 "$RUNNER_TEMP/vite.log"
+          exit 1
+
+      # The suite skips itself rather than failing halfway when the workspace
+      # has already moved on or a passcode is missing, and a skip must not look
+      # like a pass. So the preconditions are asserted here, where they fail.
+      - name: Confirm the suite's preconditions
+        run: |
+          test -n "$DEMO_PASSCODES"
+          python - <<'PY'
+          import json
+          import urllib.request
+
+          with urllib.request.urlopen("http://127.0.0.1:8000/workspace") as response:
+              state = json.load(response)
+          refs = {c["source_ref"] for c in state["cases"]}
+          assert "INITIAL-PUBLICATION" in refs, refs
+          assert state["findings"] == [], state["findings"]
+          assert state["current_release"] is None, state["current_release"]
+          print(f"precondition: authoring start, revision {state['context_revision']}")
+          PY
+
+      - name: Run the browser suite
+        working-directory: frontend
+        run: npm run test:e2e -- --project=authoring
+
+      - name: Collect failure evidence
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-authoring-failure
           path: |
             frontend/test-results
             ${{ runner.temp }}/api.log

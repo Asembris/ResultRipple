@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { Assessment, Comparison } from "../types";
-import { RELATION_PHRASE, money } from "../workflow";
+import { RELATION_PHRASE, contradicted, money } from "../workflow";
 
 /**
  * The live comparison, bottom-left.
@@ -58,7 +58,7 @@ export default function EconomicsStrip({
 
   // The struck line is the assertion the current editions actually publish,
   // shown only while the server reports it as contradicted.
-  const outdated = assessment.find((entry) => entry.relation_changed || entry.magnitude_changed);
+  const outdated = assessment.find(contradicted);
   const publishedCard = outdated?.previous;
   const was =
     publishedCard && typeof publishedCard.magnitude_cents === "number" && publishedCard.relation

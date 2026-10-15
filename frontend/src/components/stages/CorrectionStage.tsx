@@ -1,6 +1,6 @@
 import { applyCorrection } from "../../api";
 import { documentNodeKey } from "../../graph/stageFromWorkspace";
-import { RELATION_PHRASE, money } from "../../workflow";
+import { RELATION_PHRASE, contradicted, money } from "../../workflow";
 import type { StageContext } from "./context";
 
 /**
@@ -100,9 +100,7 @@ function Consequences({ context }: { context: StageContext }) {
       ? previousComparison.right.mean_display_cents
       : null;
 
-  const outdated = workspace.assessment.filter(
-    (entry) => entry.relation_changed || entry.magnitude_changed,
-  );
+  const outdated = workspace.assessment.filter(contradicted);
   const flip = outdated[0];
   const wasPhrase =
     flip?.previous && typeof flip.previous.magnitude_cents === "number" && flip.previous.relation

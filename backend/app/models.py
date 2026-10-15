@@ -82,6 +82,35 @@ class ApplyCorrectionRequest(BaseModel):
     source_confirmed: bool = False
 
 
+class CreateFindingRequest(BaseModel):
+    """Register the displayed comparison as an approved finding.
+
+    It names a comparison and the revision the analyst saw, plus the explicit
+    confirmation. There is no free prose: the server writes the finding's title
+    and every sentence later rendered from it.
+    """
+
+    comparison_id: str = Field(min_length=1, max_length=120)
+    expected_context_revision: int
+    confirmed_intended_comparison: bool = False
+
+
+class LinkedFindingRequest(BaseModel):
+    """Place a registered finding in a document with its approved card style."""
+
+    claim_id: str = Field(min_length=1, max_length=120)
+    card_style: str = Field(min_length=1, max_length=32)
+    expected_context_revision: int
+
+
+class DecisionBasisRequest(BaseModel):
+    """Explicitly record a finding as a basis for a decision."""
+
+    claim_id: str = Field(min_length=1, max_length=120)
+    expected_context_revision: int
+    confirmed_basis: bool = False
+
+
 class StageReviewRequest(BaseModel):
     """A typed intent frame. The raw request stays visible beside it."""
 

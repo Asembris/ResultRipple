@@ -10,6 +10,7 @@
  *   fetchPlan(id)    -> Plan        (GET /plans/{plan_id})
  */
 import type { Comparison, Plan, PlanSummary, Workspace } from "../types";
+import { contradicted } from "../workflow";
 
 export type LaneKey = "north" | "south" | "pilot";
 export type ReviewerKey = "noor" | "sam" | "unknown";
@@ -99,6 +100,20 @@ export interface SceneLabels {
   planDisposition: string;
 }
 
+/**
+ * Which authored relationships exist. An authoring-start workspace has none of
+ * them, and the scene must not draw a finding or a use the graph does not hold.
+ */
+export interface SceneLinks {
+  /** A claim is bound to the comparison. */
+  finding: boolean;
+  /** The finding is placed in the first, and in the second, report slot. */
+  ops: boolean;
+  memo: boolean;
+  /** The decision records the finding as its basis. */
+  basis: boolean;
+}
+
 export interface SceneStage {
   /** The correction is committed in the graph: changed batches sit in the new lane. */
   moved: boolean;
@@ -117,6 +132,7 @@ export interface SceneStage {
   fromLaneKey: LaneKey;
   toLaneKey: LaneKey;
   facts: SceneFacts | null;
+  links: SceneLinks;
   labels: SceneLabels;
 }
 
@@ -253,7 +269,7 @@ export function stageFromWorkspace(
     changedBatchIds.length > 0 &&
     changedBatchIds.every((id) => batches.find((b) => b.id === id)?.currentLane === toLaneKey);
 
-  const stale = ws.assessment.some((entry) => entry.relation_changed || entry.magnitude_changed);
+  const stale = ws.assessment.some(contradicted);
 
   const reviewerId = ws.decision?.current_reviewer_id ?? null;
   const personSlots = resolveSlots(
@@ -292,7 +308,24 @@ export function stageFromWorkspace(
     fromLaneKey,
     toLaneKey,
     facts,
+    links: sceneLinks(ws),
     labels: sceneLabels(ws, kase, latest, lanes, facts, personSlots),
+  };
+}
+
+/** Authored links, read from the registered occurrences and the recorded basis. */
+export function sceneLinks(ws: Workspace): SceneLinks {
+  const placedIn = (index: number) => {
+    const doc =
+      ws.scope.find((entry) => entry.document_id === DOC_SLOT_IDS[index]) ?? ws.scope[index] ?? null;
+    return !!doc && doc.occurrences.length > 0;
+  };
+  const anyPlacement = ws.scope.some((doc) => doc.occurrences.length > 0);
+  return {
+    finding: (ws.findings?.length ?? 0) > 0 || anyPlacement,
+    ops: placedIn(0),
+    memo: placedIn(1),
+    basis: !!ws.decision?.basis_claim_id,
   };
 }
 
@@ -385,7 +418,7 @@ function sceneLabels(
     minN: ws.comparison?.min_n ?? "",
     findingTitle: "Shared finding",
     findingSub: text(ws.comparison?.hold_reason),
-    claimTitle: text(docs[0]?.occurrences[0]?.claim_id),
+    claimTitle: text(ws.findings?.[0]?.claim_id ?? docs[0]?.occurrences[0]?.claim_id),
     occurrenceCount,
     publishedSentence: published,
     docOpsTitle: text(ops?.title),

@@ -95,6 +95,16 @@ def seeded(live_graph):
     }
 
 
+@pytest.fixture()
+def fresh(live_graph):
+    """An authoring-start workspace: no claim, occurrence, basis or edition yet."""
+    store = get_artifact_store()
+    csv_path = get_dataset_path()
+    seed_demo.reset(live_graph)
+    seed_demo.seed_fresh(live_graph, csv_path)
+    return {"graph": live_graph, "store": store, "csv_path": csv_path}
+
+
 @contextmanager
 def session_for(person_id: str) -> Iterator[TestClient]:
     """An authenticated demo client. Capability still comes from the graph."""
@@ -128,6 +138,18 @@ def sam(seeded) -> Iterator[TestClient]:
 @pytest.fixture()
 def operator(seeded) -> Iterator[TestClient]:
     with session_for(domain.PERSON_OPERATOR) as http:
+        yield http
+
+
+@pytest.fixture()
+def fresh_ari(fresh) -> Iterator[TestClient]:
+    with session_for(domain.PERSON_ARI) as http:
+        yield http
+
+
+@pytest.fixture()
+def fresh_noor(fresh) -> Iterator[TestClient]:
+    with session_for(domain.PERSON_NOOR) as http:
         yield http
 
 
