@@ -345,7 +345,11 @@ class GraphClient:
                    c.from_lane_id AS from_lane_id, c.to_lane_id AS to_lane_id,
                    c.request_text AS request_text, c.decision_id AS decision_id,
                    c.comparison_id AS comparison_id, c.applied_by AS applied_by,
-                   c.applied_at AS applied_at
+                   c.applied_at AS applied_at,
+                   c.clarification_field AS clarification_field,
+                   c.clarification_question AS clarification_question,
+                   c.clarification_context_ids AS clarification_context_ids,
+                   c.clarification_asked_at AS clarification_asked_at
             """,
             {"case_id": case_id},
         )
@@ -438,6 +442,149 @@ class GraphClient:
             )
         return row
 
+    def persist_clarification(
+        self,
+        *,
+        case_id: str,
+        missing_field: str,
+        question: str,
+        context_ids: str,
+        asked_at: str,
+        asked_by: str,
+        job_id: str,
+        allowed_states: list[str],
+    ) -> dict[str, Any]:
+        """Record one real waiting-for-clarification state on the case.
+
+        Guarded by the case state, so a question can never overwrite a case that
+        is already awaiting review, approved, or issued. The resulting status
+        blocks nothing silently: staging is simply not reached while the
+        consequential intent is unresolved.
+        """
+        row = self.run_one(
+            """
+            MATCH (c:CorrectionCase {id:$case_id})
+            WHERE c.status IN $allowed_states
+            SET c.status = 'NEEDS_CLARIFICATION',
+                c.clarification_field = $missing_field,
+                c.clarification_question = $question,
+                c.clarification_context_ids = $context_ids,
+                c.clarification_asked_at = $asked_at,
+                c.clarification_asked_by = $asked_by,
+                c.clarification_job_id = $job_id
+            RETURN c.id AS case_id, c.status AS status,
+                   c.clarification_question AS question
+            """,
+            {
+                "case_id": case_id,
+                "missing_field": missing_field,
+                "question": question,
+                "context_ids": context_ids,
+                "asked_at": asked_at,
+                "asked_by": asked_by,
+                "job_id": job_id,
+                "allowed_states": sorted(allowed_states),
+            },
+        )
+        if row is None:
+            raise GuardFailed(
+                "CLARIFICATION_GUARD_FAILED",
+                "the case is not in a state where a question can be recorded",
+            )
+        return row
+
+    # -- bounded agent jobs ---------------------------------------------------
+
+    def create_agent_job(self, *, case_id: str, job: dict[str, Any]) -> dict[str, Any]:
+        """Persist a queued job before any inference starts.
+
+        Consequential job state lives in the graph so a restart cannot present
+        an unfinished run as a completed one.
+        """
+        row = self.run_one(
+            """
+            MATCH (c:CorrectionCase {id:$case_id})
+            OPTIONAL MATCH (clash:AgentJob {id:$job_id})
+            WITH c, count(clash) AS clashes
+            WHERE clashes = 0
+            CREATE (j:AgentJob {
+                id:$job_id, status:$status, request_text:$request_text,
+                requested_by:$requested_by, model:$model, endpoint:$endpoint,
+                reasoning:$reasoning, started_at:$started_at,
+                events:$events, usage:$usage, tool_call_count:0,
+                model_turn_count:0, elapsed_ms:0
+            })
+            CREATE (j)-[:FOR_CASE]->(c)
+            RETURN j.id AS job_id
+            """,
+            {"case_id": case_id, **job},
+        )
+        if row is None:
+            raise GuardFailed("JOB_WRITE_FAILED", "the case or a clashing job id blocked this run")
+        return row
+
+    def update_agent_job(self, *, job_id: str, fields: dict[str, Any]) -> None:
+        """Write the job's observable progress. Never its private reasoning."""
+        self.run(
+            """
+            MATCH (j:AgentJob {id:$job_id})
+            SET j += $fields
+            """,
+            {"job_id": job_id, "fields": fields},
+        )
+
+    def agent_job(self, job_id: str) -> dict[str, Any] | None:
+        return self.run_one(
+            """
+            MATCH (j:AgentJob {id:$job_id})
+            OPTIONAL MATCH (j)-[:FOR_CASE]->(c:CorrectionCase)
+            RETURN j.id AS job_id, j.status AS status, j.request_text AS request_text,
+                   j.requested_by AS requested_by, j.model AS model,
+                   j.endpoint AS endpoint, j.reasoning AS reasoning,
+                   j.started_at AS started_at, j.finished_at AS finished_at,
+                   j.events AS events, j.usage AS usage,
+                   j.tool_call_count AS tool_call_count,
+                   j.model_turn_count AS model_turn_count,
+                   j.elapsed_ms AS elapsed_ms, j.plan_id AS plan_id,
+                   j.error_code AS error_code, j.error_detail AS error_detail,
+                   j.clarification_question AS clarification_question,
+                   j.clarification_field AS clarification_field,
+                   coalesce(c.id, '') AS case_id
+            """,
+            {"job_id": job_id},
+        )
+
+    def agent_jobs_for_case(self, case_id: str) -> list[dict[str, Any]]:
+        return self.run(
+            """
+            MATCH (j:AgentJob)-[:FOR_CASE]->(:CorrectionCase {id:$case_id})
+            RETURN j.id AS job_id, j.status AS status, j.started_at AS started_at,
+                   j.finished_at AS finished_at, j.plan_id AS plan_id,
+                   j.error_code AS error_code, j.elapsed_ms AS elapsed_ms,
+                   j.request_text AS request_text
+            ORDER BY started_at, job_id
+            """,
+            {"case_id": case_id},
+        )
+
+    def interrupt_unfinished_agent_jobs(self, *, terminal_states: list[str], at: str) -> int:
+        """Mark every job left mid-flight by a restart as interrupted.
+
+        An unfinished job is honestly interrupted, never silently completed.
+        """
+        rows = self.run(
+            """
+            MATCH (j:AgentJob)
+            WHERE NOT j.status IN $terminal_states
+            SET j.status = 'INTERRUPTED', j.finished_at = $at,
+                j.error_code = 'INTERRUPTED',
+                j.error_detail = 'the API restarted while this run was in flight'
+            RETURN j.id AS job_id
+            """,
+            {"terminal_states": sorted(terminal_states), "at": at},
+        )
+        return len(rows)
+
     # -- review plans ---------------------------------------------------------
 
     def plan(self, plan_id: str) -> dict[str, Any] | None:
@@ -456,7 +603,8 @@ class GraphClient:
                    p.candidates AS candidates, p.scope AS scope,
                    p.context_revision AS context_revision,
                    p.prior_release_id AS prior_release_id,
-                   p.staged_at AS staged_at, p.approved_at AS approved_at,
+                   p.staged_at AS staged_at, p.staged_by AS staged_by,
+                   p.approved_at AS approved_at,
                    p.acknowledged_alternative AS acknowledged_alternative,
                    p.invalidation_reason AS invalidation_reason,
                    p.superseded_by AS superseded_by,
