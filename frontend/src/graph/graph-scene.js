@@ -95,10 +95,10 @@ function edgeDefs(s) {
   E.push({ id: 'left>cmp', from: 'lane-' + leftLane, to: 'comparison', rel: 'LEFT_SIDE', kind: 'flow', rev: true, bend: -0.08, tag: true });
   E.push({ id: 'right>cmp', from: 'lane-' + rightLane, to: 'comparison', rel: 'RIGHT_SIDE', kind: 'flow', stale: true, rev: true, bend: 0.08, tag: true });
   E.push({ id: 'dataset>cmp', from: 'dataset', to: 'comparison', rel: 'USES_DATASET', kind: 'context', rev: true, bend: 0.1 });
-  E.push({ id: 'cmp>finding', from: 'comparison', to: 'finding', rel: 'BASED_ON', kind: 'flow', stale: true, rev: true, bend: 0.0, tag: true });
-  E.push({ id: 'finding>ops', from: 'finding', to: 'doc-ops', rel: 'OF_CLAIM · IN_DOCUMENT', kind: 'flow', stale: true, bend: -0.1, occ: true });
-  E.push({ id: 'finding>memo', from: 'finding', to: 'doc-memo', rel: 'OF_CLAIM · IN_DOCUMENT', kind: 'flow', stale: true, bend: 0.1, occ: true });
-  E.push({ id: 'finding>decision', from: 'finding', to: 'decision', rel: 'BASED_ON', kind: 'flow', stale: true, rev: true, bend: 0.05, tag: true });
+  E.push({ id: 'cmp>finding', from: 'comparison', to: 'finding', rel: 'BASED_ON', kind: 'flow', stale: true, rev: true, bend: 0.0, tag: true, link: 'finding' });
+  E.push({ id: 'finding>ops', from: 'finding', to: 'doc-ops', rel: 'OF_CLAIM · IN_DOCUMENT', kind: 'flow', stale: true, bend: -0.1, occ: true, link: 'ops' });
+  E.push({ id: 'finding>memo', from: 'finding', to: 'doc-memo', rel: 'OF_CLAIM · IN_DOCUMENT', kind: 'flow', stale: true, bend: 0.1, occ: true, link: 'memo' });
+  E.push({ id: 'finding>decision', from: 'finding', to: 'decision', rel: 'BASED_ON', kind: 'flow', stale: true, rev: true, bend: 0.05, tag: true, link: 'basis' });
   E.push({ id: 'decision>team', from: 'decision', to: 'team', rel: 'OWNED_BY', kind: 'context', bend: 0.05 });
   E.push({ id: 'team>noor', from: 'team', to: 'noor', rel: 'REVIEWED_BY', kind: 'authority', who: 'noor', bend: -0.1, tag: true });
   E.push({ id: 'team>sam', from: 'team', to: 'sam', rel: 'REVIEWED_BY', kind: 'authority', who: 'sam', bend: 0.1, tag: true });
@@ -140,7 +140,10 @@ function nodeTone(n, s) {
     default: return 'ivory';
   }
 }
-const nodeVisible = (n, s) => (n.id === 'case' ? s.caseVis : n.id === 'plan' ? s.plan !== 'none' : true);
+// An authored link is drawn only when the server reports it. A stage without
+// `links` predates authoring and keeps every authored link visible.
+const linkOn = (s, key) => !(s && s.links) || s.links[key] !== false;
+const nodeVisible = (n, s) => (n.id === 'case' ? s.caseVis : n.id === 'plan' ? s.plan !== 'none' : n.id === 'finding' ? linkOn(s, 'finding') : true);
 
 const money = (cents) => '$' + Math.floor(Math.abs(cents) / 100) + '.' + String(Math.abs(cents) % 100).padStart(2, '0');
 const RELATION_WORD = { HIGHER_COST: 'more expensive', LOWER_COST: 'cheaper', EQUAL_COST: 'equal', WITHHELD: 'withheld' };
@@ -221,7 +224,7 @@ function edgeTarget(e, s) {
       return { vis, tone, dash: moving && s.caseVis && e.lane !== toLaneOf(s), op: moving && s.caseVis ? 0.7 : 0.32 };
     }
     case 'case': return { vis: s.caseVis, tone: 'amber', dash: true, op: 0.6 };
-    case 'flow': return { vis: true, tone: e.stale && st ? 'coral' : 'amber', op: 0.62 };
+    case 'flow': return { vis: !e.link || linkOn(s, e.link), tone: e.stale && st ? 'coral' : 'amber', op: 0.62 };
     case 'context': return { vis: true, tone: 'faint', op: 0.3 };
     case 'authority': return { vis: reviewerIs(s, e.who), tone: 'ivory', op: 0.6 };
     case 'release': return { vis: true, tone: s.release === 'v2' ? 'sage' : 'faint', op: s.release === 'v2' ? 0.6 : 0.3 };
