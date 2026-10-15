@@ -193,6 +193,7 @@ def _stage(toolbox: AgentToolbox, inspection_id: str, **overrides):
     arguments = {
         "case_id": domain.CASE_ID,
         "inspection_id": inspection_id,
+        "requested_keep_target": "COST_CLAIM",
         "goal": domain.GOAL_RETAIN_CHEAPER_CLAIM,
         "disposition": domain.DISPOSITION_RETURN_FOR_REVIEW,
         "alternative_flag": True,
@@ -273,6 +274,71 @@ def test_retaining_the_contradicted_claim_without_an_alternative_is_refused(seed
     assert outcome.ok is False
     assert outcome.code == "UNSUPPORTED_ASSERTION_REQUESTED"
     assert seeded["graph"].plans_for_case(domain.CASE_ID) == []
+
+
+def test_an_unstated_request_target_cannot_be_staged_under_any_goal(seeded):
+    """"Keep South in the memo" has two readings; neither may be guessed."""
+    toolbox = _corrected(seeded)
+    inspection = _inspect(toolbox)["inspection_id"]
+    for goal in (
+        domain.GOAL_CORRECT_FACTS,
+        domain.GOAL_PRESERVE_PROPOSAL,
+        domain.GOAL_RETAIN_CHEAPER_CLAIM,
+    ):
+        outcome = _stage(
+            toolbox,
+            inspection,
+            requested_keep_target="UNSTATED",
+            goal=goal,
+            alternative_flag=goal == domain.GOAL_RETAIN_CHEAPER_CLAIM,
+        )
+        assert outcome.ok is False, goal
+        assert outcome.code == "CLARIFICATION_REQUIRED", goal
+    assert seeded["graph"].plans_for_case(domain.CASE_ID) == []
+
+
+def test_a_request_for_the_cost_claim_cannot_be_framed_as_an_ordinary_correction(seeded):
+    """The reviewer must see the conflict, not a quietly reframed request."""
+    toolbox = _corrected(seeded)
+    outcome = _stage(
+        toolbox,
+        _inspect(toolbox)["inspection_id"],
+        requested_keep_target="COST_CLAIM",
+        goal=domain.GOAL_CORRECT_FACTS,
+        alternative_flag=False,
+    )
+    assert outcome.ok is False
+    assert outcome.code == "INTENT_FRAME_INCONSISTENT"
+    assert seeded["graph"].plans_for_case(domain.CASE_ID) == []
+
+
+def test_claiming_the_cheaper_goal_without_that_target_is_refused(seeded):
+    toolbox = _corrected(seeded)
+    outcome = _stage(
+        toolbox,
+        _inspect(toolbox)["inspection_id"],
+        requested_keep_target="NOT_REQUESTED",
+        goal=domain.GOAL_RETAIN_CHEAPER_CLAIM,
+    )
+    assert outcome.ok is False
+    assert outcome.code == "INTENT_FRAME_INCONSISTENT"
+
+
+def test_an_ordinary_correction_stages_without_an_alternative(seeded):
+    toolbox = _corrected(seeded)
+    outcome = _stage(
+        toolbox,
+        _inspect(toolbox)["inspection_id"],
+        requested_keep_target="NOT_REQUESTED",
+        goal=domain.GOAL_CORRECT_FACTS,
+        alternative_flag=False,
+    )
+    assert outcome.ok is True, outcome.payload
+    plan = seeded["graph"].plan(outcome.payload["plan"]["plan_id"])
+    assert plan["goal"] == domain.GOAL_CORRECT_FACTS
+    assert bool(plan["alternative_flag"]) is False
+    # The scope is still the engine's, not the request's.
+    assert sorted(plan["covered_occurrence_ids"]) == [domain.OCC_MEMO, domain.OCC_OPS]
 
 
 def test_an_unsupported_disposition_is_not_in_the_schema(seeded):

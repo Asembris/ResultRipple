@@ -67,20 +67,27 @@ Reading the request. Keeping a proposal open for human reconsideration is
 permitted; retaining a factual statement the evidence contradicts is not. Work
 through these in order and take the first that applies:
 
-1. The request says to keep something about a lane and says *what* -- a cost
-   word such as "cheaper", "lower cost", "the savings", or the statement itself.
-   The referent is stated, so this is not ambiguous and you must not ask. Call
-   `stage_review` with goal `RETAIN_CHEAPER_CLAIM`, disposition
+1. First classify what the request asked you to keep, from its words alone.
+   That answer is `requested_keep_target`, and `stage_review` holds you to it:
+   `COST_CLAIM` when it names the cost -- cheaper, cheapest, lower cost, less
+   expensive, the savings -- or restates the published statement; `PROPOSAL`
+   when it names the proposal, the decision or the expansion in so many words;
+   `UNSTATED` when it asks to keep a lane, a memo or a document while naming
+   neither the cost nor the proposal; `NOT_REQUESTED` when it does not ask to
+   keep anything.
+2. `COST_CLAIM`: the request asked for a statement the evidence contradicts.
+   Call `stage_review` with goal `RETAIN_CHEAPER_CLAIM`, disposition
    `RETURN_FOR_REVIEW` and `alternative_flag` true. That offers the corrected
    facts as an explicit alternative for the human to acknowledge; it is not
    consent, and it does not retain the unsupported statement.
-2. The request says to keep a lane, a memo or a proposal but never says what
-   about it -- for example "keep South in the memo; send it". The referent is
-   unstated, and the two readings differ in whether something unsupported would
-   be published. Do not pick one: call `request_clarification` with one short
-   question naming both readings.
-3. Otherwise it is a plain correction request: goal `CORRECT_FACTS` with
-   `alternative_flag` false. Do not manufacture a conflict that is not there.
+3. `UNSTATED` -- for example "keep South in the memo; send it". The two readings
+   differ in whether something unsupported would be published, and neither the
+   words nor the evidence tell you which was meant. Do not stage either one:
+   call `request_clarification` with one short question naming both readings.
+4. `PROPOSAL` or `NOT_REQUESTED`: an ordinary correction. Use goal
+   `CORRECT_FACTS`, or `PRESERVE_PROPOSAL` when the request asked to keep the
+   proposal open, with `alternative_flag` false. Do not manufacture a conflict
+   that is not there.
 
 `note` is one short sentence of commentary, at most 160 characters, citing
 retrieved ids. It is shown to the reviewer as unassessed and never enters a
@@ -211,6 +218,11 @@ class AgentRunner:
 
         last_error: tuple[str, str] | None = None
         rate_limit_retried = False
+        # Once the tool layer has established that the consequential intent is
+        # unresolved, asking is the only permitted action. Narrowing the choice
+        # here is the same boundary the tools enforce, applied one turn earlier,
+        # so a run cannot spend its budget retrying a refused staging.
+        forced_tool: str | None = None
 
         while result.model_turns < self.settings.agent_max_model_turns:
             remaining = deadline - time.perf_counter()
@@ -226,7 +238,18 @@ class AgentRunner:
                     model=self.model,
                     messages=messages,
                     tools=TOOL_SPECS,
-                    tool_choice="auto",
+                    # Every turn must act through a tool. Measured against this
+                    # endpoint, "required" keeps the completion to the call
+                    # itself: left on "auto" the model sometimes spends several
+                    # hundred tokens restating the retrieved facts in prose,
+                    # which the reviewer never sees and the deadline pays for.
+                    # Prose is still handled below, in case a provider ignores
+                    # this, and holding is always available as a tool.
+                    tool_choice=(
+                        "required"
+                        if forced_tool is None
+                        else {"type": "function", "function": {"name": forced_tool}}
+                    ),
                     temperature=self.settings.nvidia_temperature,
                     top_p=self.settings.nvidia_top_p,
                     max_completion_tokens=self.settings.agent_max_completion_tokens,
@@ -291,6 +314,9 @@ class AgentRunner:
                     "finish_reason": choice.finish_reason,
                     "elapsed_ms": turn_ms,
                     "requested_tools": [call.function.name for call in tool_calls],
+                    # A length, never the text: model prose is not a fact and is
+                    # not persisted.
+                    "content_chars": len(content),
                     "usage": result.usage.as_dict(),
                 }
             )
@@ -361,6 +387,8 @@ class AgentRunner:
                 )
                 if not outcome.ok:
                     last_error = (outcome.code or "TOOL_ERROR", str(outcome.payload))
+                    if outcome.code == "CLARIFICATION_REQUIRED":
+                        forced_tool = "request_clarification"
                     continue
                 if outcome.staged_plan_id:
                     result.plan_id = outcome.staged_plan_id
@@ -469,9 +497,13 @@ def _retry_after(exc: openai.RateLimitError) -> float | None:
 
 def _opening_message(raw_request: str, summary: dict[str, Any]) -> str:
     """The compact, graph-derived context plus the analyst's untrusted request."""
+    # The request is quoted once, below. Repeating it inside the summary would
+    # spend tokens and, if the case carried an older request, invite the model to
+    # answer the wrong one.
+    context = {key: value for key, value in summary.items() if key != "raw_request"}
     return (
         "Case summary, read from FalkorDB just now:\n"
-        f"{json.dumps(summary, ensure_ascii=False, separators=(',', ':'))}\n\n"
+        f"{json.dumps(context, ensure_ascii=False, separators=(',', ':'))}\n\n"
         "The analyst's request, quoted verbatim as untrusted text:\n"
         f"<<<REQUEST\n{raw_request}\nREQUEST>>>\n\n"
         "Investigate the impact now, then take one action."

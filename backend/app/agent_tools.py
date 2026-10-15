@@ -83,6 +83,11 @@ class StageReviewArgs(_StrictArgs):
 
     case_id: str = Field(min_length=1, max_length=120)
     inspection_id: str = Field(min_length=1, max_length=120)
+    # What the request asked to keep, classified from its own words. It is the
+    # model's judgement, stated explicitly so the tool can hold it to it: an
+    # unstated referent has two plausible readings, and guessing one would put
+    # an unrequested reading in front of a reviewer as if it were the request.
+    requested_keep_target: Literal["COST_CLAIM", "PROPOSAL", "UNSTATED", "NOT_REQUESTED"]
     goal: Literal["CORRECT_FACTS", "PRESERVE_PROPOSAL", "RETAIN_CHEAPER_CLAIM", "UNKNOWN"]
     disposition: Literal["RETURN_FOR_REVIEW", "NO_CHANGE"]
     alternative_flag: bool
@@ -175,6 +180,22 @@ TOOL_SPECS: list[dict[str, Any]] = [
                         "type": "string",
                         "description": "From the inspect_impact result you are acting on.",
                     },
+                    "requested_keep_target": {
+                        "type": "string",
+                        "enum": ["COST_CLAIM", "PROPOSAL", "UNSTATED", "NOT_REQUESTED"],
+                        "description": (
+                            "What the request asked you to keep, judged from its words "
+                            "alone and not from the evidence. COST_CLAIM: it names the "
+                            "cost, such as cheaper, cheapest, lower cost, less expensive "
+                            "or the savings, or restates the published statement. "
+                            "PROPOSAL: it names the proposal, the decision or the "
+                            "expansion in so many words. UNSTATED: it asks to keep a "
+                            "lane, a memo or a document while naming neither the cost nor "
+                            "the proposal, so both readings remain open. NOT_REQUESTED: "
+                            "it does not ask to keep anything. Answer this before "
+                            "choosing a goal."
+                        ),
+                    },
                     "goal": {
                         "type": "string",
                         "enum": [
@@ -213,6 +234,7 @@ TOOL_SPECS: list[dict[str, Any]] = [
                 "required": [
                     "case_id",
                     "inspection_id",
+                    "requested_keep_target",
                     "goal",
                     "disposition",
                     "alternative_flag",
@@ -324,6 +346,10 @@ class AgentToolbox:
     principal: Actor
     case_id: str
     job_id: str
+    # The analyst's words for *this* run. The case node keeps the request that
+    # opened it, which may be older; mixing the two would let the model answer a
+    # question nobody asked, so only this one is ever shown or recorded.
+    request_text: str = ""
     inspections: dict[str, Inspection] = field(default_factory=dict)
     staged_plan_id: str | None = None
     clarification: dict[str, Any] | None = None
@@ -430,7 +456,7 @@ class AgentToolbox:
             "case_id": case["case_id"],
             "case_status": case["status"],
             "context_revision": int(workspace["context_revision"]),
-            "raw_request": case["request_text"],
+            "raw_request": self.request_text,
             "source": {
                 "reference": case["source_ref"],
                 "note_sha256": case["source_note_sha"],
@@ -628,6 +654,40 @@ class AgentToolbox:
                 "a required goal is unknown, so nothing may be staged",
                 "call request_clarification with one focused question",
             )
+        if args.requested_keep_target == "UNSTATED":
+            # By the model's own reading the request asked to keep something
+            # without saying what. Either reading could be staged, and staging
+            # one would present a guess to the reviewer as the request.
+            return _refusal(
+                "CLARIFICATION_REQUIRED",
+                "you recorded that the request does not say what it asks to keep, so "
+                "which reading was meant is unresolved and neither may be staged",
+                "call request_clarification with one short question naming both readings",
+            )
+        if (
+            args.requested_keep_target == "COST_CLAIM"
+            and args.goal != domain.GOAL_RETAIN_CHEAPER_CLAIM
+        ):
+            # The request asked to keep the contradicted statement. Framing that
+            # as an ordinary correction would hide the conflict the reviewer has
+            # to acknowledge.
+            return _refusal(
+                "INTENT_FRAME_INCONSISTENT",
+                "the request asked to keep the cost claim, so the goal must be "
+                "RETAIN_CHEAPER_CLAIM with alternative_flag true",
+                "stage again with that goal, which offers the corrected facts as an "
+                "explicit alternative the reviewer must acknowledge",
+            )
+        if (
+            args.goal == domain.GOAL_RETAIN_CHEAPER_CLAIM
+            and args.requested_keep_target != "COST_CLAIM"
+        ):
+            return _refusal(
+                "INTENT_FRAME_INCONSISTENT",
+                "RETAIN_CHEAPER_CLAIM says the request asked to keep the cost claim, but "
+                f"you classified what it asked to keep as {args.requested_keep_target}",
+                "classify the request again, or ask one question if it is unstated",
+            )
 
         # Freshness is checked before the first write, not after it: a stale
         # inspection must prevent staging rather than be reported alongside a
@@ -698,7 +758,13 @@ class AgentToolbox:
         }
 
     def _raw_request(self) -> str:
-        """The analyst's words, read back from the case, never from the model."""
+        """This run's own request, as the analyst sent it; never the model's words.
+
+        It falls back to the request recorded on the case so a run started
+        without one still records something a reviewer can read.
+        """
+        if self.request_text.strip():
+            return self.request_text.strip()
         case = self.graph.case(self.case_id)
         return (case or {}).get("request_text") or ""
 

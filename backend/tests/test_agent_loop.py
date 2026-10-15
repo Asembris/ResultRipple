@@ -155,6 +155,7 @@ def _stage_arguments(inspection_id: str, **overrides: Any) -> dict[str, Any]:
     arguments = {
         "case_id": domain.CASE_ID,
         "inspection_id": inspection_id,
+        "requested_keep_target": "COST_CLAIM",
         "goal": domain.GOAL_RETAIN_CHEAPER_CLAIM,
         "disposition": domain.DISPOSITION_RETURN_FOR_REVIEW,
         "alternative_flag": True,
@@ -220,6 +221,53 @@ def test_the_normal_path_is_two_turns_inspect_then_stage(corrected):
     assert inspection_ids and inspection_ids[0].startswith("insp-")
 
 
+def test_the_plan_records_this_run_s_request_not_the_one_on_the_case(corrected):
+    """A later request must not be reviewed under the words that opened the case."""
+    graph = corrected["graph"]
+    revision = _revision(graph)
+    later = "Please just fix both reports; the proposal can wait for its reviewer."
+    assert graph.case(domain.CASE_ID)["request_text"] != later
+
+    class Script(ScriptedModel):
+        def _create(self, **kwargs: Any) -> Any:
+            index = len(self.calls)
+            self.calls.append(kwargs)
+            if index == 0:
+                # The quoted request the model is given is this run's own.
+                assert later in kwargs["messages"][1]["content"]
+                return tool_turn(
+                    "inspect_impact",
+                    {"case_id": domain.CASE_ID, "expected_context_revision": revision},
+                )()
+            payload = json.loads(self.calls[-1]["messages"][-1]["content"])
+            return tool_turn(
+                "stage_review",
+                _stage_arguments(
+                    payload["inspection_id"],
+                    requested_keep_target="NOT_REQUESTED",
+                    goal=domain.GOAL_CORRECT_FACTS,
+                    alternative_flag=False,
+                ),
+                call_id="call-2",
+            )()
+
+    store = get_job_store()
+    accepted = store.accept(graph, actor=ARI, case_id=domain.CASE_ID, request_text=later)
+    store.execute(
+        graph,
+        get_artifact_store(),
+        get_dataset_path(),
+        job_id=accepted["job_id"],
+        case_id=domain.CASE_ID,
+        actor=ARI,
+        request_text=later,
+        client=Script(),
+    )
+    job = jobs.read_job(graph, accepted["job_id"]) or {}
+    assert job["status"] == "AWAITING_REVIEW"
+    assert graph.plan(job["plan_id"])["raw_request"] == later
+
+
 def test_the_job_records_real_sanitized_events(corrected):
     revision = _revision(corrected["graph"])
     job = _run(
@@ -276,6 +324,58 @@ def test_a_clarification_turn_leaves_the_case_waiting(corrected):
     assert "cheaper statement" in job["clarification_question"]
     assert corrected["graph"].case(domain.CASE_ID)["status"] == "NEEDS_CLARIFICATION"
     assert corrected["graph"].plans_for_case(domain.CASE_ID) == []
+
+
+def test_an_unresolved_intent_leaves_the_question_as_the_only_next_action(corrected):
+    """Once the tools say the reading is unresolved, the loop narrows the choice.
+
+    Otherwise a run can spend its whole budget re-attempting the staging the
+    tool layer has already refused.
+    """
+    graph = corrected["graph"]
+    revision = _revision(graph)
+
+    class Script(ScriptedModel):
+        def _create(self, **kwargs: Any) -> Any:
+            index = len(self.calls)
+            self.calls.append(kwargs)
+            if index == 0:
+                return tool_turn(
+                    "inspect_impact",
+                    {"case_id": domain.CASE_ID, "expected_context_revision": revision},
+                )()
+            last = json.loads(self.calls[-1]["messages"][-1]["content"])
+            if index == 1:
+                # The model's own reading says the request never said what to keep.
+                return tool_turn(
+                    "stage_review",
+                    _stage_arguments(last["inspection_id"], requested_keep_target="UNSTATED"),
+                    call_id="call-2",
+                )()
+            return tool_turn(
+                "request_clarification",
+                {
+                    "case_id": domain.CASE_ID,
+                    "missing_field": "INTENT_CLAIM_VERSUS_PROPOSAL",
+                    "question": "Keep the proposal open, or keep the cheaper statement?",
+                },
+                call_id="call-3",
+            )()
+
+    model = Script()
+    job = _run(corrected, model)
+
+    assert model.calls[0]["tool_choice"] == "required"
+    assert model.calls[1]["tool_choice"] == "required"
+    # After the refusal, asking is the only call the model may make.
+    assert model.calls[2]["tool_choice"] == {
+        "type": "function",
+        "function": {"name": "request_clarification"},
+    }
+    codes = [event.get("code") for event in job["events"] if event["kind"] == "tool"]
+    assert "CLARIFICATION_REQUIRED" in codes
+    assert job["status"] == "NEEDS_CLARIFICATION"
+    assert graph.plans_for_case(domain.CASE_ID) == []
 
 
 # -- model failure modes ------------------------------------------------------

@@ -175,6 +175,7 @@ class AgentJobStore:
             principal=agent_principal(actor),
             case_id=case_id,
             job_id=job_id,
+            request_text=request_text,
         )
         events: list[dict[str, Any]] = []
 
