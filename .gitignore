@@ -41,3 +41,6 @@ Thumbs.db
 
 # Local logs
 *.log
+
+# Local editor/agent tooling.
+/.claude/

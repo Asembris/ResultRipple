@@ -1,0 +1,880 @@
+"""Workflow operations: correction, staging, approval, release, refresh.
+
+Every operation re-reads authoritative context from FalkorDB under the single
+in-process workspace lock. Nothing here trusts a client-supplied scope, actor,
+reviewer, number, or file path.
+
+Approve revision and Issue editions are separate human actions. Approval binds
+to one exact plan version and execution fingerprint; release re-reads the world
+and refuses a stale one without touching the current publication pointer.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from . import domain
+from .artifacts import ArtifactStore, RenderedPackage, render_package
+from .engine import (
+    CaseContext,
+    EngineHold,
+    content_identity,
+    execution_identity,
+    load_case_context,
+    validate_intent,
+)
+from .graph import WORKSPACE_LOCK, GraphClient, GuardFailed
+from .verify_artifacts import verify_package
+
+
+class WorkflowRefused(RuntimeError):
+    """A refusal with a stable code and a permitted recovery action."""
+
+    def __init__(
+        self,
+        code: str,
+        detail: str,
+        *,
+        http_status: int = 409,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+        self.http_status = http_status
+        self.context = context or {}
+
+
+@dataclass(frozen=True)
+class Actor:
+    """Server-resolved identity. A request body can never override this."""
+
+    person_id: str
+    display_name: str
+    demo_role: str
+    review_capable: bool
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _context(graph: GraphClient, csv_path: Path) -> CaseContext:
+    return load_case_context(
+        graph, csv_path, decision_id=domain.DECISION_ID, comparison_id=domain.COMPARISON_ID
+    )
+
+
+# -- evidence correction ------------------------------------------------------
+
+
+def apply_correction(
+    graph: GraphClient,
+    *,
+    actor: Actor,
+    case_id: str,
+    batch_ids: list[str],
+    expected_revision: int,
+) -> dict[str, Any]:
+    """Confirm the dispatch source and commit exactly the recorded reassignment."""
+    if actor.demo_role != "analyst":
+        raise WorkflowRefused(
+            "NOT_AUTHORIZED", "only the analyst confirms an evidence correction", http_status=403
+        )
+    with WORKSPACE_LOCK:
+        case = graph.case(case_id)
+        if case is None:
+            raise WorkflowRefused("CASE_UNKNOWN", f"case {case_id}", http_status=404)
+        if case["status"] != "CORRECTION_PENDING":
+            raise WorkflowRefused(
+                "CASE_STATE", f"case is {case['status']}, not CORRECTION_PENDING"
+            )
+        # The requested set must be exactly what the source note identifies.
+        if sorted(set(batch_ids)) != sorted(case["changed_batch_ids"]):
+            raise WorkflowRefused(
+                "CORRECTION_SCOPE_MISMATCH",
+                "the confirmed batches differ from the ones the source note identifies",
+                context={"recorded": case["changed_batch_ids"], "requested": sorted(batch_ids)},
+            )
+        try:
+            applied = graph.apply_correction(
+                workspace_id=domain.WORKSPACE_ID,
+                case_id=case_id,
+                batch_ids=sorted(set(batch_ids)),
+                from_lane_id=case["from_lane_id"],
+                to_lane_id=case["to_lane_id"],
+                expected_revision=expected_revision,
+                actor_id=actor.person_id,
+                applied_at=_now(),
+            )
+        except GuardFailed as exc:
+            raise WorkflowRefused(exc.code, exc.detail) from exc
+        return {
+            "case_id": case_id,
+            "applied_edge_count": int(applied["applied_edge_count"]),
+            "context_revision": int(applied["context_revision"]),
+            "actor_id": actor.person_id,
+            "source_ref": case["source_ref"],
+            "source_note_sha": case["source_note_sha"],
+            "from_lane_id": case["from_lane_id"],
+            "to_lane_id": case["to_lane_id"],
+        }
+
+
+# -- staging ------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class IntentFrame:
+    """Typed interpretation of the raw request, shown beside it, never instead."""
+
+    raw_request: str
+    goal: str
+    disposition: str
+    alternative_flag: bool
+    note: str
+    focus_occurrence_ids: tuple[str, ...] = ()
+
+
+def _plan_payload(
+    *,
+    plan_id: str,
+    version: int,
+    intent: IntentFrame,
+    content_hash: str,
+    fingerprint: str,
+    candidate_hashes: dict[str, str],
+    scope: dict[str, Any],
+    context: CaseContext,
+    staged_by: str,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    return {
+        "plan_id": plan_id,
+        "version": version,
+        "raw_request": intent.raw_request,
+        "goal": intent.goal,
+        "alternative_flag": intent.alternative_flag,
+        "disposition": intent.disposition,
+        "note": intent.note,
+        "content_hash": content_hash,
+        "execution_fingerprint": fingerprint,
+        "candidates": domain.canonical_json(candidate_hashes),
+        "scope": domain.canonical_json(scope),
+        "context_revision": context.context_revision,
+        "prior_release_id": context.prior_release_id,
+        "staged_at": _now(),
+        "idempotency_key": idempotency_key,
+        "staged_by": staged_by,
+    }
+
+
+def _scope_record(context: CaseContext, intent: IntentFrame) -> dict[str, Any]:
+    """The complete registered scope, enumerated by the engine, not the caller."""
+    return {
+        "documents": [
+            {
+                "document_id": doc.document_id,
+                "title": doc.title,
+                "owner_id": doc.owner_id,
+                "owner_name": doc.owner_name,
+                "source_revision": doc.source_revision,
+                "source_sha": doc.source_sha,
+                "blocks": doc.blocks,
+            }
+            for doc in context.scope.documents
+        ],
+        "occurrences": [
+            {
+                "occurrence_id": occ.occurrence_id,
+                "document_id": occ.document_id,
+                "block_id": occ.block_id,
+                "card_style": occ.card_style,
+                "claim_id": occ.claim_id,
+            }
+            for occ in context.scope.occurrences
+        ],
+        "assessment": context.assessment(),
+        "memberships": context.evidence.memberships(),
+        "dataset_sha": context.evidence.raw_sha,
+        "comparison": {
+            "comparison_id": context.definition.comparison_id,
+            "left_lane_id": context.definition.left_lane_id,
+            "left_lane_name": context.definition.left_lane_name,
+            "right_lane_id": context.definition.right_lane_id,
+            "right_lane_name": context.definition.right_lane_name,
+            "min_n": context.definition.min_n,
+            "owner_id": context.definition.owner_id,
+            "owner_name": context.definition.owner_name,
+        },
+        "result": context.result.as_dict(),
+        "decision": {
+            "decision_id": context.authority.decision_id,
+            "title": context.authority.decision_title,
+            "current_status": context.authority.decision_status,
+            "basis_claim_id": context.authority.basis_claim_id,
+            "expected_status": domain.DISPOSITION_DECISION_STATUS[intent.disposition],
+        },
+        "authority": {
+            "team_id": context.authority.team_id,
+            "team_name": context.authority.team_name,
+            "reviewer_id": context.authority.reviewer_id,
+            "reviewer_name": context.authority.reviewer_name,
+        },
+        # Recorded for transparency. It never narrows the scope above.
+        "requested_focus": list(intent.focus_occurrence_ids),
+        "verification_scope": domain.VERIFICATION_SCOPE_STATEMENT,
+    }
+
+
+def stage_review(
+    graph: GraphClient,
+    store: ArtifactStore,
+    csv_path: Path,
+    *,
+    actor: Actor,
+    case_id: str,
+    intent: IntentFrame,
+    idempotency_key: str,
+    allowed_case_states: tuple[str, ...] = ("CORRECTION_APPLIED", "NEEDS_CHANGES"),
+) -> dict[str, Any]:
+    """Render real candidates and persist one review plan for the current reviewer."""
+    with WORKSPACE_LOCK:
+        case = graph.case(case_id)
+        if case is None:
+            raise WorkflowRefused("CASE_UNKNOWN", f"case {case_id}", http_status=404)
+
+        existing = graph.plan_by_idempotency_key(case_id, idempotency_key)
+        if existing is not None:
+            return existing
+
+        if case["status"] not in allowed_case_states:
+            raise WorkflowRefused("CASE_STATE", f"case is {case['status']}")
+
+        validate_intent(intent.goal, intent.disposition, intent.alternative_flag)
+        context = _context(graph, csv_path)
+
+        content_hash = domain.canonical_sha(
+            content_identity(
+                context,
+                goal=intent.goal,
+                disposition=intent.disposition,
+                alternative_flag=intent.alternative_flag,
+            )
+        )
+        package = render_package(
+            context, disposition=intent.disposition, content_hash=content_hash
+        )
+        candidate_hashes = package.hashes()
+
+        version = 1 + max(
+            (int(row["version"]) for row in graph.plans_for_case(case_id)), default=0
+        )
+        plan_id = f"plan-{case_id}-v{version}"
+        fingerprint = domain.canonical_sha(
+            execution_identity(
+                content_hash=content_hash,
+                candidate_hashes=candidate_hashes,
+                reviewer_id=context.authority.reviewer_id,
+                context_revision=context.context_revision,
+                plan_version=version,
+                prior_release_id=context.prior_release_id,
+            )
+        )
+        store.write_candidates(plan_id, package)
+        graph.create_plan(
+            case_id=case_id,
+            plan=_plan_payload(
+                plan_id=plan_id,
+                version=version,
+                intent=intent,
+                content_hash=content_hash,
+                fingerprint=fingerprint,
+                candidate_hashes=candidate_hashes,
+                scope=_scope_record(context, intent),
+                context=context,
+                staged_by=actor.person_id,
+                idempotency_key=idempotency_key,
+            ),
+            occurrence_ids=[occ.occurrence_id for occ in context.scope.occurrences],
+            reviewer_id=context.authority.reviewer_id,
+        )
+        return graph.plan(plan_id) or {}
+
+
+# -- reviewer-only refresh ----------------------------------------------------
+
+
+def refresh_review(
+    graph: GraphClient, store: ArtifactStore, csv_path: Path, *, actor: Actor, case_id: str
+) -> dict[str, Any]:
+    """Re-stage the recorded intent for the current reviewer. No inference.
+
+    Permitted only when every semantic and content premise is unchanged and the
+    authorized reviewer assignment is the single difference. Prior approval is
+    kept as invalid history, never transferred.
+    """
+    if not (actor.demo_role == "analyst" or actor.review_capable):
+        raise WorkflowRefused("NOT_AUTHORIZED", "not a case participant", http_status=403)
+
+    with WORKSPACE_LOCK:
+        plans = graph.plans_for_case(case_id)
+        if not plans:
+            raise WorkflowRefused("NO_PLAN", f"case {case_id} has no plan", http_status=404)
+        prior = graph.plan(plans[-1]["plan_id"])
+        if prior is None:
+            raise WorkflowRefused("NO_PLAN", "latest plan could not be read", http_status=404)
+        if prior["status"] == "ISSUED":
+            raise WorkflowRefused("ALREADY_ISSUED", "this plan is already published")
+
+        context = _context(graph, csv_path)
+        content_hash = domain.canonical_sha(
+            content_identity(
+                context,
+                goal=prior["goal"],
+                disposition=prior["disposition"],
+                alternative_flag=bool(prior["alternative_flag"]),
+            )
+        )
+        if content_hash != prior["content_hash"]:
+            raise WorkflowRefused(
+                "NEW_INVESTIGATION_REQUIRED",
+                "a content premise changed; this shortcut covers a reviewer change only",
+            )
+        if context.prior_release_id != (prior["prior_release_id"] or ""):
+            raise WorkflowRefused(
+                "NEW_INVESTIGATION_REQUIRED", "the prior release changed since staging"
+            )
+        if context.authority.reviewer_id == prior["assigned_reviewer_id"]:
+            raise WorkflowRefused(
+                "NO_AUTHORITY_CHANGE", "the assigned reviewer is unchanged; nothing to refresh"
+            )
+
+        package = render_package(
+            context, disposition=prior["disposition"], content_hash=content_hash
+        )
+        candidate_hashes = package.hashes()
+        if candidate_hashes != json.loads(prior["candidates"]):
+            raise WorkflowRefused(
+                "NEW_INVESTIGATION_REQUIRED", "candidate bytes would change; restage instead"
+            )
+
+        version = int(prior["version"]) + 1
+        plan_id = f"plan-{case_id}-v{version}"
+        fingerprint = domain.canonical_sha(
+            execution_identity(
+                content_hash=content_hash,
+                candidate_hashes=candidate_hashes,
+                reviewer_id=context.authority.reviewer_id,
+                context_revision=context.context_revision,
+                plan_version=version,
+                prior_release_id=context.prior_release_id,
+            )
+        )
+        intent = IntentFrame(
+            raw_request=prior["raw_request"],
+            goal=prior["goal"],
+            disposition=prior["disposition"],
+            alternative_flag=bool(prior["alternative_flag"]),
+            note=prior["note"],
+        )
+        store.write_candidates(plan_id, package)
+        graph.create_plan(
+            case_id=case_id,
+            plan=_plan_payload(
+                plan_id=plan_id,
+                version=version,
+                intent=intent,
+                content_hash=content_hash,
+                fingerprint=fingerprint,
+                candidate_hashes=candidate_hashes,
+                scope=_scope_record(context, intent),
+                context=context,
+                staged_by=actor.person_id,
+                idempotency_key=f"refresh-{plan_id}",
+            ),
+            occurrence_ids=[occ.occurrence_id for occ in context.scope.occurrences],
+            reviewer_id=context.authority.reviewer_id,
+            supersedes_plan_id=prior["plan_id"],
+            supersede_reason="AUTHORITY_CHANGED",
+        )
+        refreshed = graph.plan(plan_id) or {}
+        refreshed["refresh"] = {
+            "mode": "REVIEWER_ONLY",
+            "model_calls": 0,
+            "candidate_hashes_preserved": True,
+            "previous_plan_id": prior["plan_id"],
+            "previous_reviewer_id": prior["assigned_reviewer_id"],
+            "current_reviewer_id": context.authority.reviewer_id,
+        }
+        return refreshed
+
+
+# -- approval -----------------------------------------------------------------
+
+
+def approve_plan(
+    graph: GraphClient,
+    csv_path: Path,
+    *,
+    actor: Actor,
+    plan_id: str,
+    version: int,
+    fingerprint: str,
+    acknowledged_alternative: bool,
+) -> dict[str, Any]:
+    """Only the currently assigned reviewer may approve this exact plan version."""
+    with WORKSPACE_LOCK:
+        plan = graph.plan(plan_id)
+        if plan is None:
+            raise WorkflowRefused("PLAN_UNKNOWN", plan_id, http_status=404)
+        if plan["status"] != "AWAITING_REVIEW":
+            raise WorkflowRefused("PLAN_STATE", f"plan is {plan['status']}")
+
+        context = _context(graph, csv_path)
+        if context.authority.reviewer_id != plan["assigned_reviewer_id"]:
+            graph.mark_plan_stale(plan_id=plan_id, reason="AUTHORITY_CHANGED")
+            raise WorkflowRefused(
+                "AUTHORITY_CHANGED",
+                "the assigned reviewer changed; refresh the review",
+                context=_authority_witness(plan, context),
+            )
+        if actor.person_id != context.authority.reviewer_id:
+            raise WorkflowRefused(
+                "NOT_AUTHORIZED",
+                "document ownership and a review-capable identity are not approval authority",
+                http_status=403,
+                context={"current_reviewer_id": context.authority.reviewer_id},
+            )
+        if int(version) != int(plan["version"]) or fingerprint != plan["execution_fingerprint"]:
+            raise WorkflowRefused(
+                "FINGERPRINT_MISMATCH", "approval must name the exact current plan version"
+            )
+        if bool(plan["alternative_flag"]) and not acknowledged_alternative:
+            raise WorkflowRefused(
+                "ALTERNATIVE_NOT_ACKNOWLEDGED",
+                "the proposed alternative must be acknowledged before approval",
+            )
+        # Re-derive the fingerprint from the current world before recording it.
+        _assert_plan_fresh(plan, context)
+        try:
+            graph.approve_plan(
+                plan_id=plan_id,
+                version=int(plan["version"]),
+                fingerprint=plan["execution_fingerprint"],
+                reviewer_id=actor.person_id,
+                approved_at=_now(),
+                acknowledged_alternative=acknowledged_alternative,
+            )
+        except GuardFailed as exc:
+            raise WorkflowRefused(exc.code, exc.detail) from exc
+        return graph.plan(plan_id) or {}
+
+
+def reject_plan(
+    graph: GraphClient, csv_path: Path, *, actor: Actor, plan_id: str, reason: str
+) -> dict[str, Any]:
+    with WORKSPACE_LOCK:
+        plan = graph.plan(plan_id)
+        if plan is None:
+            raise WorkflowRefused("PLAN_UNKNOWN", plan_id, http_status=404)
+        context = _context(graph, csv_path)
+        if actor.person_id != context.authority.reviewer_id:
+            raise WorkflowRefused("NOT_AUTHORIZED", "not the current reviewer", http_status=403)
+        if not reason.strip():
+            raise WorkflowRefused("REASON_REQUIRED", "a rejection must state a reason")
+        try:
+            graph.reject_plan(
+                plan_id=plan_id, reviewer_id=actor.person_id, reason=reason.strip(), at=_now()
+            )
+        except GuardFailed as exc:
+            raise WorkflowRefused(exc.code, exc.detail) from exc
+        return graph.plan(plan_id) or {}
+
+
+def _authority_witness(plan: dict[str, Any], context: CaseContext) -> dict[str, Any]:
+    return {
+        "approved_reviewer_id": plan.get("assigned_reviewer_id"),
+        "approved_by": plan.get("approved_by"),
+        "current_reviewer_id": context.authority.reviewer_id,
+        "current_reviewer_name": context.authority.reviewer_name,
+        "team_id": context.authority.team_id,
+        "context_revision": context.context_revision,
+        "plan_context_revision": plan.get("context_revision"),
+    }
+
+
+def _assert_plan_fresh(plan: dict[str, Any], context: CaseContext) -> None:
+    content_hash = domain.canonical_sha(
+        content_identity(
+            context,
+            goal=plan["goal"],
+            disposition=plan["disposition"],
+            alternative_flag=bool(plan["alternative_flag"]),
+        )
+    )
+    if content_hash != plan["content_hash"]:
+        raise WorkflowRefused(
+            "STALE_PLAN",
+            "evidence, source blocks, ownership, basis, or intent changed since staging",
+        )
+    fingerprint = domain.canonical_sha(
+        execution_identity(
+            content_hash=content_hash,
+            candidate_hashes=json.loads(plan["candidates"]),
+            reviewer_id=context.authority.reviewer_id,
+            context_revision=context.context_revision,
+            plan_version=int(plan["version"]),
+            prior_release_id=context.prior_release_id,
+        )
+    )
+    if fingerprint != plan["execution_fingerprint"]:
+        raise WorkflowRefused(
+            "STALE_CONTEXT", "the workspace context moved since this plan was staged"
+        )
+
+
+# -- release ------------------------------------------------------------------
+
+
+def issue_release(
+    graph: GraphClient,
+    store: ArtifactStore,
+    csv_path: Path,
+    *,
+    actor: Actor,
+    plan_id: str,
+    operation_id: str,
+) -> dict[str, Any]:
+    """Re-read the world, regenerate, verify the bytes, then commit one package."""
+    with WORKSPACE_LOCK:
+        plan = graph.plan(plan_id)
+        if plan is None:
+            raise WorkflowRefused("PLAN_UNKNOWN", plan_id, http_status=404)
+
+        # Reconcile a previously committed operation before judging freshness.
+        committed = graph.release_for_plan(plan_id) or graph.release_by_operation(operation_id)
+        if committed is not None:
+            return {"release": committed, "idempotent": True}
+
+        context = _context(graph, csv_path)
+
+        if context.authority.reviewer_id != plan["assigned_reviewer_id"]:
+            graph.mark_plan_stale(plan_id=plan_id, reason="AUTHORITY_CHANGED")
+            raise WorkflowRefused(
+                "AUTHORITY_CHANGED",
+                "the approval was recorded under a reviewer who no longer holds this case",
+                context=_authority_witness(plan, context),
+            )
+        if plan["status"] != "APPROVED":
+            raise WorkflowRefused(
+                _status_refusal_code(plan["status"]), f"plan is {plan['status']}"
+            )
+        if actor.person_id != context.authority.reviewer_id:
+            raise WorkflowRefused(
+                "NOT_AUTHORIZED",
+                "only the current reviewer may issue this package",
+                http_status=403,
+                context={"current_reviewer_id": context.authority.reviewer_id},
+            )
+        _assert_plan_fresh(plan, context)
+
+        approved_hashes: dict[str, str] = json.loads(plan["candidates"])
+        scope = json.loads(plan["scope"])
+
+        # Regenerate from the same fixed recipe and require exact agreement.
+        package = render_package(
+            context, disposition=plan["disposition"], content_hash=plan["content_hash"]
+        )
+        if package.hashes() != approved_hashes:
+            raise WorkflowRefused(
+                "CANDIDATE_MISMATCH",
+                "regenerated bytes do not match the approved candidate hashes",
+            )
+        _assert_staged_candidates_intact(store, plan_id, approved_hashes)
+
+        # Independent audit of the actual bytes about to be issued.
+        report = verify_package(
+            csv_path=csv_path,
+            dataset_sha=context.evidence.raw_sha,
+            memberships=context.evidence.memberships(),
+            comparison=scope["comparison"],
+            documents=scope["documents"],
+            occurrences=scope["occurrences"],
+            decision={
+                "decision_id": context.authority.decision_id,
+                "expected_status": domain.DISPOSITION_DECISION_STATUS[plan["disposition"]],
+            },
+            artifacts=package.documents,
+            expected_hashes=approved_hashes,
+        )
+        if not report.ok:
+            raise WorkflowRefused(
+                "VERIFICATION_FAILED",
+                "independent verification rejected the candidate bytes",
+                context={"failures": [c.name for c in report.failures][:10]},
+            )
+
+        sequence = 1 + len(graph.release_history())
+        release_id = f"rel-{sequence:03d}-{plan['content_hash'][:8]}"
+        paths = store.issue(release_id, package)
+        issued_at = _now()
+        artifacts = {
+            document_id: {
+                "path": paths[document_id],
+                "sha256": approved_hashes[document_id],
+                "title": _title_for(scope, document_id),
+            }
+            for document_id in sorted(package.documents)
+        }
+        receipt = _receipt(
+            plan=plan,
+            context=context,
+            report=report,
+            actor=actor,
+            release_id=release_id,
+            issued_at=issued_at,
+            operation_id=operation_id,
+            artifacts=artifacts,
+        )
+        try:
+            committed_row = graph.commit_release(
+                workspace_id=domain.WORKSPACE_ID,
+                plan_id=plan_id,
+                plan_version=int(plan["version"]),
+                fingerprint=plan["execution_fingerprint"],
+                expected_revision=context.context_revision,
+                expected_prior_release_id=context.prior_release_id,
+                decision_id=context.authority.decision_id,
+                decision_status=domain.DISPOSITION_DECISION_STATUS[plan["disposition"]],
+                release={
+                    "release_id": release_id,
+                    "sequence": sequence,
+                    "issued_at": issued_at,
+                    "artifacts": domain.canonical_json(artifacts),
+                    "receipt": domain.canonical_json(receipt),
+                    "occurrence_snapshots": domain.canonical_json(scope["assessment"]),
+                    "operation_id": operation_id,
+                },
+                document_ids=[doc["document_id"] for doc in scope["documents"]],
+                occurrence_assertions=[
+                    [entry["occurrence_id"], domain.canonical_json(entry["current"])]
+                    for entry in scope["assessment"]
+                ],
+            )
+        except GuardFailed as exc:
+            # Files exist but nothing is current: a private orphan, not a release.
+            raise WorkflowRefused(exc.code, exc.detail) from exc
+
+        released = graph.release(str(committed_row["release_id"])) or {}
+        return {"release": released, "idempotent": False, "verification": report.as_dict()}
+
+
+def _status_refusal_code(status: str) -> str:
+    return {
+        "AWAITING_REVIEW": "NOT_APPROVED",
+        "REJECTED": "PLAN_REJECTED",
+        "SUPERSEDED": "PLAN_SUPERSEDED",
+        "STALE_AUTHORITY": "AUTHORITY_CHANGED",
+        "ISSUED": "ALREADY_ISSUED",
+    }.get(status, "PLAN_STATE")
+
+
+def _assert_staged_candidates_intact(
+    store: ArtifactStore, plan_id: str, approved: dict[str, str]
+) -> None:
+    """The bytes the reviewer was shown must still be the approved bytes."""
+    for document_id, expected in approved.items():
+        path = store.candidate_path(plan_id, document_id)
+        if not path.is_file():
+            raise WorkflowRefused("CANDIDATE_MISSING", f"staged candidate for {document_id}")
+        if domain.sha256_bytes(path.read_bytes()) != expected:
+            raise WorkflowRefused(
+                "CANDIDATE_MISMATCH", f"the staged candidate for {document_id} was altered"
+            )
+
+
+def _title_for(scope: dict[str, Any], document_id: str) -> str:
+    for document in scope["documents"]:
+        if document["document_id"] == document_id:
+            return document["title"]
+    return document_id
+
+
+def _receipt(
+    *,
+    plan: dict[str, Any],
+    context: CaseContext,
+    report: Any,
+    actor: Actor,
+    release_id: str,
+    issued_at: str,
+    operation_id: str,
+    artifacts: dict[str, Any],
+) -> dict[str, Any]:
+    """Approval and issue metadata live here, never inside the edition bytes."""
+    return {
+        "release_id": release_id,
+        "operation_id": operation_id,
+        "issued_at": issued_at,
+        "issued_by": actor.person_id,
+        "plan_id": plan["plan_id"],
+        "plan_version": plan["version"],
+        "content_hash": plan["content_hash"],
+        "execution_fingerprint": plan["execution_fingerprint"],
+        "approved_by": plan["approved_by"],
+        "approved_at": plan["approved_at"],
+        "acknowledged_alternative": plan.get("acknowledged_alternative"),
+        "raw_request": plan["raw_request"],
+        "interpreted_goal": plan["goal"],
+        "alternative_proposed": plan["alternative_flag"],
+        "disposition": plan["disposition"],
+        "approved_context_revision": context.context_revision,
+        "authority_at_issue": {
+            "team_id": context.authority.team_id,
+            "reviewer_id": context.authority.reviewer_id,
+            "reviewer_name": context.authority.reviewer_name,
+        },
+        "dataset_sha": context.evidence.raw_sha,
+        "membership_sha": context.evidence.membership_sha(),
+        "artifacts": artifacts,
+        "verification": report.as_dict(),
+        "verification_scope": domain.VERIFICATION_SCOPE_STATEMENT,
+    }
+
+
+# -- guarded demo operator control -------------------------------------------
+
+
+def reassign_reviewer(
+    graph: GraphClient,
+    *,
+    actor: Actor,
+    from_person_id: str,
+    to_person_id: str,
+    expected_revision: int,
+) -> dict[str, Any]:
+    """Labelled synthetic rota change. Operator capability only; no model path."""
+    if actor.demo_role != "operator":
+        raise WorkflowRefused(
+            "NOT_AUTHORIZED",
+            "a reviewer assignment needs the demo-operator capability",
+            http_status=403,
+        )
+    with WORKSPACE_LOCK:
+        try:
+            changed = graph.reassign_reviewer(
+                workspace_id=domain.WORKSPACE_ID,
+                team_id=domain.TEAM_ID,
+                from_person_id=from_person_id,
+                to_person_id=to_person_id,
+                expected_revision=expected_revision,
+                operator_id=actor.person_id,
+                source="demo-operator-rota-change",
+                at=_now(),
+            )
+        except GuardFailed as exc:
+            raise WorkflowRefused(exc.code, exc.detail) from exc
+        return {
+            "previous_reviewer_id": changed["previous_reviewer_id"],
+            "current_reviewer_id": changed["current_reviewer_id"],
+            "context_revision": int(changed["context_revision"]),
+            "source": "demo-operator-rota-change",
+            "operator_id": actor.person_id,
+        }
+
+
+# -- read model ---------------------------------------------------------------
+
+
+def workspace_view(graph: GraphClient, csv_path: Path) -> dict[str, Any]:
+    """Everything the three surfaces need, straight from current graph context."""
+    workspace = graph.workspace(domain.WORKSPACE_ID)
+    try:
+        context = _context(graph, csv_path)
+        hold: dict[str, Any] | None = None
+        evidence = {
+            "dataset_id": context.evidence.dataset_id,
+            "dataset_sha": context.evidence.raw_sha,
+            "batches": [
+                {"batch_id": b.batch_id, "cost_cents": b.cost_cents, "lane_id": b.lane_id}
+                for b in context.evidence.batches
+            ],
+        }
+        comparison = {
+            "comparison_id": context.definition.comparison_id,
+            "metric_key": context.definition.metric_key,
+            "min_n": context.definition.min_n,
+            "owner_id": context.definition.owner_id,
+            "owner_name": context.definition.owner_name,
+            "left": context.result.left.as_dict(),
+            "right": context.result.right.as_dict(),
+            "relation": context.result.relation,
+            "magnitude_cents": context.result.magnitude_cents,
+            "hold_reason": context.result.hold_reason,
+        }
+        scope = [
+            {
+                "document_id": doc.document_id,
+                "title": doc.title,
+                "owner_id": doc.owner_id,
+                "owner_name": doc.owner_name,
+                "blocks": doc.blocks,
+                "occurrences": [
+                    {
+                        "occurrence_id": occ.occurrence_id,
+                        "block_id": occ.block_id,
+                        "card_style": occ.card_style,
+                        "claim_id": occ.claim_id,
+                    }
+                    for occ in doc.occurrences
+                ],
+            }
+            for doc in context.scope.documents
+        ]
+        assessment = context.assessment()
+        decision = {
+            "decision_id": context.authority.decision_id,
+            "title": context.authority.decision_title,
+            "status": context.authority.decision_status,
+            "basis_claim_id": context.authority.basis_claim_id,
+            "team_id": context.authority.team_id,
+            "team_name": context.authority.team_name,
+            "current_reviewer_id": context.authority.reviewer_id,
+            "current_reviewer_name": context.authority.reviewer_name,
+        }
+    except EngineHold as exc:
+        hold = {"code": exc.code, "detail": exc.detail}
+        evidence = comparison = decision = None  # type: ignore[assignment]
+        scope = []
+        assessment = []
+
+    cases = []
+    for row in graph.cases():
+        case = graph.case(row["case_id"])
+        if case is None:
+            continue
+        case["plans"] = graph.plans_for_case(case["case_id"])
+        cases.append(case)
+
+    current_release_id = workspace["current_release_id"]
+    return {
+        "workspace_id": workspace["workspace_id"],
+        "context_revision": int(workspace["context_revision"]),
+        "demo": bool(workspace["demo"]),
+        "hold": hold,
+        "evidence": evidence,
+        "comparison": comparison,
+        "scope": scope,
+        "assessment": assessment,
+        "decision": decision,
+        "cases": cases,
+        "current_release": graph.release(current_release_id) if current_release_id else None,
+        "releases": graph.release_history(),
+        "people": graph.people(),
+        "verification_scope": domain.VERIFICATION_SCOPE_STATEMENT,
+    }

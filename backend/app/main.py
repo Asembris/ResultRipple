@@ -1,35 +1,42 @@
-"""ResultRipple API — bootstrap surface: liveness and graph-backed readiness."""
+"""ResultRipple API: evidence-connected publishing over FalkorDB."""
 
 from __future__ import annotations
 
 from typing import Annotated
 
 import anyio
-from fastapi import Depends, FastAPI, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import get_settings
+from .config import enforce_deployment_safety, get_settings
+from .deps import get_graph_client
 from .graph import GraphClient
 from .models import HealthResponse, ReadinessResponse
+from .routes import refusal_handler, router
 
-API_VERSION = "0.1.0"
+API_VERSION = "0.2.0"
 
-# Bootstrap implements no domain workflow yet; readiness says so out loud rather
-# than implying the correction case exists.
-IMPLEMENTED_SCOPE = ["health", "readiness"]
+IMPLEMENTED_SCOPE = [
+    "health",
+    "readiness",
+    "authenticated-demo-sessions",
+    "workspace",
+    "evidence-correction",
+    "deterministic-staging",
+    "human-approval",
+    "independent-verification",
+    "immutable-editions",
+]
 
 settings = get_settings()
-_graph_client = GraphClient(settings=settings)
 
-
-def get_graph_client() -> GraphClient:
-    """Injected so tests can substitute a probe without a live container."""
-    return _graph_client
+# A deployment carrying development defaults must not serve traffic at all.
+enforce_deployment_safety(settings)
 
 app = FastAPI(
     title="ResultRipple API",
     version=API_VERSION,
-    summary="Evidence-connected publishing over FalkorDB (Track 3 — Company Brain).",
+    summary="Evidence-connected publishing over FalkorDB (Track 3 - Company Brain).",
 )
 
 app.add_middleware(
@@ -39,6 +46,9 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["content-type"],
 )
+
+app.add_exception_handler(HTTPException, refusal_handler)  # type: ignore[arg-type]
+app.include_router(router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["ops"])

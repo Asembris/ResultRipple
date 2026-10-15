@@ -1,0 +1,16 @@
+batch_id,cost_cents,recorded_lane
+B01,380,North
+B02,400,North
+B03,420,North
+B04,400,North
+B05,420,South
+B06,440,South
+B07,460,South
+B08,440,South
+B09,240,South
+B10,250,South
+B11,270,South
+B12,250,Pilot
+B13,260,Pilot
+B14,240,Pilot
+B15,250,Pilot

@@ -1,0 +1,112 @@
+{#
+  Standalone edition layout. Autoescaped, inline CSS, no remote fetches.
+
+  Every factual block is rendered whole from a closed template. Nothing here
+  interpolates model-authored prose, and no block carries its own hash, plan
+  fingerprint, reviewer identity, or issue time: those belong to the receipt.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ document.title }}</title>
+<meta name="rr-edition-id" content="{{ edition.edition_id }}">
+<meta name="rr-document-id" content="{{ document.document_id }}">
+<meta name="rr-template-version" content="{{ edition.template_version }}">
+<meta name="rr-dataset-sha" content="{{ edition.dataset_sha }}">
+<meta name="rr-membership-sha" content="{{ edition.membership_sha }}">
+<style>
+:root { --ink:#1b1a17; --paper:#fbfaf7; --rule:#d9d4c7; --accent:{% block accent %}#1f5d4c{% endblock %}; --muted:#6b6557; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--paper); color:var(--ink);
+       font:16px/1.6 Georgia,"Times New Roman",serif; }
+.report { max-width:46rem; margin:0 auto; padding:3rem 1.5rem 4rem; }
+.org { margin:0; font:600 0.75rem/1.4 system-ui,sans-serif; letter-spacing:0.08em;
+       text-transform:uppercase; color:var(--muted); }
+h1 { margin:0.4rem 0 0.3rem; font-size:2rem; line-height:1.2; }
+.masthead { border-bottom:3px solid var(--accent); padding-bottom:1rem; margin-bottom:2rem; }
+.masthead .meta { margin:0; font:0.8rem/1.5 system-ui,sans-serif; color:var(--muted); }
+h2 { font-size:1.05rem; letter-spacing:0.02em; margin:2rem 0 0.5rem; }
+.block { margin:0 0 1.5rem; }
+.card { border:1px solid var(--rule); border-left:4px solid var(--accent);
+        background:#fff; padding:1.1rem 1.25rem; }
+.card__label { margin:0 0 0.4rem; font:600 0.7rem/1.4 system-ui,sans-serif;
+               letter-spacing:0.1em; text-transform:uppercase; color:var(--accent); }
+.card__assertion { margin:0 0 0.9rem; font-size:1.25rem; font-weight:700; line-height:1.35; }
+.card__evidence { margin:0; display:grid; grid-template-columns:7rem 1fr; gap:0.3rem 1rem;
+                  font:0.82rem/1.5 system-ui,sans-serif; color:var(--muted); }
+.card__evidence dt { font-weight:600; color:var(--ink); }
+.card__evidence dd { margin:0; }
+.card--withheld { border-left-color:#9a6b00; }
+.decision { border:1px solid var(--rule); background:#fff; padding:1.1rem 1.25rem; }
+.decision__status { font:600 1.05rem/1.4 system-ui,sans-serif; }
+.unassessed { margin:0.6rem 0 0; font:0.72rem/1.5 system-ui,sans-serif; color:var(--muted);
+              font-style:italic; }
+footer { margin-top:3rem; padding-top:1rem; border-top:1px solid var(--rule);
+         font:0.75rem/1.6 system-ui,sans-serif; color:var(--muted); }
+footer dl { display:grid; grid-template-columns:10rem 1fr; gap:0.2rem 1rem; margin:0.6rem 0 0; }
+footer dt { font-weight:600; }
+footer dd { margin:0; word-break:break-all; }
+</style>
+</head>
+<body>
+<article class="report">
+  <header class="masthead">
+    <p class="org">{{ edition.organization }}</p>
+    <h1>{{ document.title }}</h1>
+    <p class="meta">{% block subtitle %}Report{% endblock %} &middot; Owner: {{ document.owner_name }} &middot; Edition {{ edition.edition_id }}</p>
+  </header>
+
+  {% for block in blocks %}
+    {%- if block.kind == 'narrative' %}
+  <section class="block block--narrative" id="{{ block.id }}"
+           data-block-kind="narrative" data-assessed="false">
+    <h2>{{ block.heading }}</h2>
+    {% for paragraph in block.paragraphs %}<p>{{ paragraph }}</p>
+    {% endfor %}<p class="unassessed">Editorial context &mdash; not assessed by ResultRipple.</p>
+  </section>
+    {%- elif block.kind == 'finding' %}
+      {%- set card = cards[block.id] %}
+  <section class="block block--finding card{% if card.assertion.relation == 'WITHHELD' %} card--withheld{% endif %}"
+           id="{{ block.id }}" data-block-kind="finding"
+           data-occurrence-id="{{ card.occurrence_id }}"
+           data-claim-id="{{ card.claim_id }}"
+           data-relation="{{ card.assertion.relation }}"
+           data-magnitude-cents="{{ card.assertion.magnitude_cents }}"
+           data-unit="{{ card.assertion.unit }}"
+           data-card-style="{{ card.assertion.card_style }}">
+    <p class="card__label">Linked finding</p>
+    <p class="card__assertion">{{ card.assertion.text }}</p>
+    <dl class="card__evidence">
+      <dt>{{ card.left_name }}</dt>
+      <dd>mean {{ card.left_display }} per parcel over {{ card.left_count }} batches</dd>
+      <dt>{{ card.right_name }}</dt>
+      <dd>mean {{ card.right_display }} per parcel over {{ card.right_count }} batches</dd>
+      <dt>Evidence</dt>
+      <dd>{{ card.comparison_id }} &middot; dataset {{ card.dataset_id }} &middot; minimum {{ card.min_n }} batches per side</dd>
+    </dl>
+  </section>
+    {%- elif block.kind == 'decision' %}
+  <section class="block block--decision decision" id="{{ block.id }}"
+           data-block-kind="decision" data-decision-id="{{ decision.decision_id }}"
+           data-decision-status="{{ decision.status }}">
+    <h2>{{ block.heading }}</h2>
+    <p class="decision__status">{{ decision.title }} &mdash; {{ decision.status_label }}</p>
+    <p>Recorded basis: the linked finding above ({{ decision.basis_claim_id or 'no recorded basis' }}).
+       ResultRipple records the disposition of this proposal; it does not decide it.</p>
+  </section>
+    {%- endif %}
+  {% endfor %}
+
+  <footer>
+    <p><strong>Verification scope.</strong> {{ edition.scope_statement }}</p>
+    <dl>
+      <dt>Raw measurements</dt><dd>SHA-256 {{ edition.dataset_sha }}</dd>
+      <dt>Effective memberships</dt><dd>SHA-256 {{ edition.membership_sha }}</dd>
+      <dt>Edition</dt><dd>{{ edition.edition_id }} ({{ edition.template_version }})</dd>
+    </dl>
+    <p>All organizational data in this document is fictional demo setup.</p>
+  </footer>
+</article>
+</body>
+</html>
