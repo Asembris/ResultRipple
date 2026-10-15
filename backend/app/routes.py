@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -17,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from . import domain, jobs, service
+from . import reset as workspace_reset
 from .artifacts import ArtifactStore
 from .auth import authenticate_demo_identity, clear_session, current_actor, issue_session, optional_actor
 from .config import Settings, get_settings
@@ -34,6 +36,7 @@ from .models import (
     LinkedFindingRequest,
     RejectionRequest,
     ReleaseRequest,
+    ResetRequest,
     ReviewerAssignmentRequest,
     SessionResponse,
     StageReviewRequest,
@@ -41,6 +44,8 @@ from .models import (
 from .service import Actor, WorkflowRefused
 
 router = APIRouter()
+
+logger = logging.getLogger("resultripple.demo")
 
 GraphDep = Annotated[GraphClient, Depends(get_graph_client)]
 StoreDep = Annotated[ArtifactStore, Depends(get_artifact_store)]
@@ -535,6 +540,39 @@ async def reviewer_assignment(
         )
     except (WorkflowRefused, EngineHold, GraphUnavailable) as exc:
         raise _fail(exc) from exc
+
+
+@router.post("/demo/reset", tags=["demo"])
+async def reset_demo(
+    body: ResetRequest,
+    actor: ActorDep,
+    graph: GraphDep,
+    store: StoreDep,
+    csv_path: CsvDep,
+    job_store: JobStoreDep,
+) -> dict[str, Any]:
+    """Operator-only reseed. Graph first, then the artifact volume, then the seed."""
+    try:
+        receipt = await _offload(
+            workspace_reset.reset_workspace,
+            graph,
+            store,
+            csv_path,
+            actor=actor,
+            mode=body.mode,
+            active_agent_jobs=job_store.active_count,
+        )
+    except (WorkflowRefused, EngineHold, GraphUnavailable) as exc:
+        raise _fail(exc) from exc
+    release = receipt["release"] or {}
+    logger.info(
+        "demo reset mode=%s operator=%s nodes=%s release=%s",
+        receipt["mode"],
+        receipt["operator_id"],
+        receipt["node_count"],
+        release.get("release_id", "-"),
+    )
+    return receipt
 
 
 def refusal_handler(_: Request, exc: HTTPException) -> JSONResponse:
