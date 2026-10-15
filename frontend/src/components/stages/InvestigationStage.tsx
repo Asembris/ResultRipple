@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { fetchJob, startAgentRun, stageReview } from "../../api";
+import { ApiRefusal, fetchJob, startAgentRun, stageReview } from "../../api";
 import type { AgentEvent, AgentJob, JobStatus } from "../../types";
 import { RELATION_PHRASE, money } from "../../workflow";
 import type { StageContext } from "./context";
@@ -117,10 +117,11 @@ export default function InvestigationStage({ context }: { context: StageContext 
   if (!kase) return null;
 
   const agent = readiness?.agent ?? null;
-  const isAnalyst = actor?.demo_role === "analyst";
+  // Any session sees the action; the server decides who may take it.
+  const signedIn = actor !== null;
   const running = Boolean(job && !job.terminal);
   const canRun =
-    isAnalyst &&
+    signedIn &&
     !starting &&
     !running &&
     draft.trim().length > 0 &&
@@ -135,7 +136,10 @@ export default function InvestigationStage({ context }: { context: StageContext 
       finished.current = null;
       setJobId(accepted.job_id);
     } catch (error) {
-      context.notify("The run could not be started.");
+      // Show the server's own refusal, such as a reviewer starting a run.
+      context.notify(
+        error instanceof ApiRefusal ? `${error.code}: ${error.detail}` : "The run could not be started.",
+      );
       console.error(error);
     } finally {
       setStarting(false);
@@ -165,14 +169,14 @@ export default function InvestigationStage({ context }: { context: StageContext 
           rows={3}
           value={draft}
           maxLength={2000}
-          disabled={!isAnalyst || running}
+          disabled={!signedIn || running}
           onChange={(event) => setDraft(event.target.value)}
         />
       </div>
 
       {!staged && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {isAnalyst ? (
+          {signedIn ? (
             <button type="button" className="rr-primary" onClick={run} disabled={!canRun}>
               <span>{running ? "Agent is working…" : "Run agent"}</span>
               <span>→</span>
@@ -186,7 +190,7 @@ export default function InvestigationStage({ context }: { context: StageContext 
                 key={suggestion}
                 type="button"
                 className="rr-secondary"
-                disabled={!isAnalyst || running}
+                disabled={!signedIn || running}
                 onClick={() => setDraft(suggestion)}
               >
                 {suggestion.length > 46 ? `${suggestion.slice(0, 44)}…` : suggestion}
@@ -207,7 +211,7 @@ export default function InvestigationStage({ context }: { context: StageContext 
                 No NVIDIA credential is configured, so the deterministic staging below is the honest
                 fallback. It is not an agent demonstration.
               </div>
-              {isAnalyst && (
+              {signedIn && (
                 <button
                   type="button"
                   className="rr-outline"

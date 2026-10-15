@@ -167,8 +167,19 @@ describe("authoring on the publishing desk", () => {
     });
   });
 
-  it("offers no authoring action to a reviewer", () => {
+  it("lets a signed-in reviewer try, so the server gives the real refusal", async () => {
+    const calls: Call[] = [];
+    stubFetch(calls);
     render(<DeskStage context={context(WORKSPACE_FINDING_REGISTERED, noor)} />);
+    const insert = screen.getAllByRole("button", { name: /Insert linked finding/ });
+    expect(insert.length).toBeGreaterThan(0);
+    fireEvent.click(insert[0]);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].url).toMatch(/\/linked-findings$/);
+  });
+
+  it("offers no authoring action to a visitor without a session", () => {
+    render(<DeskStage context={context(WORKSPACE_FINDING_REGISTERED, null)} />);
     expect(screen.queryByRole("button", { name: /Use this finding|Insert linked finding/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Record as decision basis/ })).toBeNull();
   });
