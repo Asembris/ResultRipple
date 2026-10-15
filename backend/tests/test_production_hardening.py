@@ -239,8 +239,19 @@ def test_locally_a_foreign_origin_is_still_refused(seeded, client) -> None:
     refused = client.post("/auth/sign-out", headers={"origin": FOREIGN_ORIGIN})
     assert refused.status_code == 403
     assert refused.json()["code"] == "ORIGIN_REFUSED"
-    allowed = client.post("/auth/sign-out", headers={"origin": "http://localhost:5173"})
-    assert allowed.status_code == 200
+    for local in ("http://localhost:5173", "http://localhost:5191", "http://127.0.0.1:4173"):
+        allowed = client.post("/auth/sign-out", headers={"origin": local})
+        assert allowed.status_code == 200, local
+    # Loopback by name only: a lookalike host is foreign.
+    lookalike = client.post("/auth/sign-out", headers={"origin": "http://localhost.attacker.test"})
+    assert lookalike.status_code == 403
+
+
+def test_a_deployment_does_not_trust_loopback_origins(seeded, production) -> None:
+    with site_client(origin="http://localhost:5173") as http:
+        refused = _sign_in(http, domain.PERSON_ARI)
+        assert refused.status_code == 403
+        assert refused.json()["code"] == "ORIGIN_REFUSED"
 
 
 # -- logs ---------------------------------------------------------------------
