@@ -7,6 +7,7 @@ expose, and enough witness for the UI to show why an action was refused.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Annotated, Any
@@ -15,14 +16,16 @@ import anyio
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from . import domain, service
+from . import domain, jobs, service
 from .artifacts import ArtifactStore
 from .auth import authenticate_demo_identity, clear_session, current_actor, issue_session, optional_actor
 from .config import Settings, get_settings
-from .deps import get_artifact_store, get_dataset_path, get_graph_client
+from .deps import get_artifact_store, get_dataset_path, get_graph_client, get_job_store
 from .engine import EngineHold
 from .graph import GraphClient, GraphUnavailable
+from .jobs import AgentJobStore
 from .models import (
+    AgentRunRequest,
     ApplyCorrectionRequest,
     ApprovalRequest,
     DemoSessionRequest,
@@ -41,6 +44,11 @@ StoreDep = Annotated[ArtifactStore, Depends(get_artifact_store)]
 CsvDep = Annotated[Path, Depends(get_dataset_path)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ActorDep = Annotated[Actor, Depends(current_actor)]
+JobStoreDep = Annotated[AgentJobStore, Depends(get_job_store)]
+
+# Strong references to in-flight background runs, so the event loop cannot
+# garbage-collect a job that is still working.
+_RUNNING: set[asyncio.Task[Any]] = set()
 
 
 async def _offload(function, /, *args, **kwargs):
@@ -214,6 +222,75 @@ async def stage_review(
         )
     except (WorkflowRefused, EngineHold, GraphUnavailable) as exc:
         raise _fail(exc) from exc
+
+
+# -- the bounded agent --------------------------------------------------------
+
+
+@router.post("/cases/{case_id}/agent-runs", tags=["agent"], status_code=status.HTTP_202_ACCEPTED)
+async def start_agent_run(
+    case_id: str,
+    body: AgentRunRequest,
+    actor: ActorDep,
+    graph: GraphDep,
+    store: StoreDep,
+    csv_path: CsvDep,
+    job_store: JobStoreDep,
+) -> dict[str, Any]:
+    """Start one bounded agent job from an authenticated analyst request.
+
+    The job is persisted before any inference begins and then runs off the event
+    loop. Poll `GET /jobs/{job_id}` for its real state and tool events.
+    """
+    try:
+        accepted = await _offload(
+            job_store.accept,
+            graph,
+            actor=actor,
+            case_id=case_id,
+            request_text=body.request_text,
+        )
+    except (WorkflowRefused, EngineHold, GraphUnavailable) as exc:
+        raise _fail(exc) from exc
+
+    task = asyncio.create_task(
+        _offload(
+            job_store.execute,
+            graph,
+            store,
+            csv_path,
+            job_id=accepted["job_id"],
+            case_id=case_id,
+            actor=actor,
+            request_text=accepted["request_text"],
+        )
+    )
+    _RUNNING.add(task)
+    task.add_done_callback(_RUNNING.discard)
+    return accepted
+
+
+@router.get("/jobs/{job_id}", tags=["agent"])
+async def read_job(job_id: str, graph: GraphDep) -> dict[str, Any]:
+    """Actual status, completed tool events, usage, errors and the plan id."""
+    try:
+        job = await _offload(jobs.read_job, graph, job_id)
+    except GraphUnavailable as exc:
+        raise _fail(exc) from exc
+    if job is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, {"code": "JOB_UNKNOWN", "detail": "unknown job"}
+        )
+    return job
+
+
+@router.get("/cases/{case_id}/agent-runs", tags=["agent"])
+async def read_agent_runs(case_id: str, graph: GraphDep) -> dict[str, Any]:
+    try:
+        runs = await _offload(graph.agent_jobs_for_case, case_id)
+    except GraphUnavailable as exc:
+        raise _fail(exc) from exc
+    return {"case_id": case_id, "runs": runs}
 
 
 @router.post("/cases/{case_id}/refresh-review", tags=["case"])

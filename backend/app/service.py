@@ -859,6 +859,7 @@ def workspace_view(graph: GraphClient, csv_path: Path) -> dict[str, Any]:
         if case is None:
             continue
         case["plans"] = graph.plans_for_case(case["case_id"])
+        case["agent_runs"] = graph.agent_jobs_for_case(case["case_id"])
         cases.append(case)
 
     current_release_id = workspace["current_release_id"]

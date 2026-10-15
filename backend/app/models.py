@@ -32,6 +32,19 @@ class GraphStatus(BaseModel):
     error_detail: str | None = None
 
 
+class AgentStatus(BaseModel):
+    """What model the agent would call. Never the credential itself."""
+
+    configured: bool
+    model: str
+    endpoint: str
+    reasoning: bool
+    max_model_turns: int
+    max_tool_calls: int
+    max_completion_tokens: int
+    deadline_seconds: float
+
+
 class ReadinessResponse(BaseModel):
     """Readiness: the API can serve graph-backed work."""
 
@@ -39,6 +52,7 @@ class ReadinessResponse(BaseModel):
     service: str = "resultripple-api"
     version: str
     falkordb: GraphStatus
+    agent: AgentStatus
     implemented_scope: list[str] = Field(default_factory=list)
 
 
@@ -79,6 +93,16 @@ class StageReviewRequest(BaseModel):
     # Recorded for transparency only; it can never narrow the registered scope.
     focus_occurrence_ids: list[str] = Field(default_factory=list, max_length=20)
     idempotency_key: str = Field(min_length=1, max_length=120)
+
+
+class AgentRunRequest(BaseModel):
+    """What the analyst wants done, in their own words.
+
+    It carries no actor, scope, reviewer, disposition, or number: the request is
+    untrusted text that the model interprets and the engine never trusts.
+    """
+
+    request_text: str = Field(min_length=1, max_length=2000)
 
 
 class ApprovalRequest(BaseModel):

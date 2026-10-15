@@ -12,10 +12,17 @@ from pathlib import Path
 from .artifacts import ArtifactStore
 from .config import get_settings
 from .graph import GraphClient
+from .jobs import AgentJobStore
 
 
 def get_graph_client() -> GraphClient:
     return GraphClient(settings=get_settings())
+
+
+@lru_cache(maxsize=1)
+def get_job_store() -> AgentJobStore:
+    """One store per process: the concurrency bound is process-wide."""
+    return AgentJobStore(get_settings())
 
 
 @lru_cache(maxsize=4)
