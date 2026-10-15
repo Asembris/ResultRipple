@@ -10,6 +10,7 @@ import {
   signOut,
   startSession,
 } from "./api";
+import AgentRun from "./components/AgentRun";
 import CorrectionCase from "./components/CorrectionCase";
 import PublishingDesk from "./components/PublishingDesk";
 import ReviewPane from "./components/ReviewPane";
@@ -133,6 +134,13 @@ export default function App() {
           <CorrectionCase
             state={state.workspace}
             actor={actor}
+            onChange={load}
+            onError={onError}
+          />
+          <AgentRun
+            state={state.workspace}
+            actor={actor}
+            agent={readiness?.agent ?? null}
             onChange={load}
             onError={onError}
           />

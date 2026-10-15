@@ -4,12 +4,13 @@ import { applyCorrection, stageReview } from "../api";
 import type { Actor, CorrectionCase as Case, Workspace } from "../types";
 
 /**
- * The correction surface: the dispatch source, the three batches it names, the
- * confirmation, and the typed intent frame shown beside the raw request.
+ * The correction surface: the dispatch source, the three batches it names, and
+ * the analyst's confirmation.
  *
- * In this phase the intent frame is chosen deterministically by a person. The
- * runtime model will fill the same frame through typed tools in the next
- * branch; either way the engine owns the scope, the numbers and the wording.
+ * Staging is normally driven by the real agent run below. The manual staging
+ * here remains as an honestly labelled fallback for when inference is
+ * unavailable: a person chooses the typed frame instead of the model. Either
+ * way the engine owns the scope, the numbers and the card wording.
  */
 export default function CorrectionCase({
   state,
@@ -108,29 +109,24 @@ export default function CorrectionCase({
 
       {current.status !== "CORRECTION_PENDING" && (
         <div className="card">
-          <h3>Request and interpretation</h3>
+          <h3>Manual correction workflow &mdash; fallback without the agent</h3>
+          <p className="meta">
+            The agent below normally interprets the request and stages the review. This button
+            runs the same deterministic staging with a human-chosen typed frame, for when
+            inference is unavailable. It is a manual fallback, not an agent demonstration.
+          </p>
           <p className="published">
-            <span className="label">Raw request</span>
+            <span className="label">Recorded request on this case</span>
             {current.request_text}
           </p>
-          <ul className="intent">
-            <li>
-              <span className="label">Requested</span> keep the cheaper claim
-            </li>
-            <li>
-              <span className="label">Evidence</span>{" "}
-              {state.comparison
-                ? `${state.comparison.right.lane_name} costs more than ${state.comparison.left.lane_name}`
-                : "held"}
-            </li>
-            <li>
-              <span className="label">Proposed alternative</span> correct the facts and return the
-              proposal for review
-            </li>
-          </ul>
+          {current.clarification_question && (
+            <p className="flag flag--held">
+              Waiting on one question: {current.clarification_question}
+            </p>
+          )}
           {current.plans.length === 0 ? (
-            <button type="button" onClick={stage} disabled={!isAnalyst || busy}>
-              Stage the review
+            <button type="button" className="secondary" onClick={stage} disabled={!isAnalyst || busy}>
+              Stage manually instead
             </button>
           ) : (
             <p className="meta">
@@ -138,8 +134,8 @@ export default function CorrectionCase({
             </p>
           )}
           <p className="unassessed">
-            The interpretation above is a typed frame, not consent. A human reviewer must
-            acknowledge the alternative before anything is approved.
+            A typed frame is not consent. A human reviewer must acknowledge a proposed
+            alternative before anything is approved.
           </p>
         </div>
       )}

@@ -12,11 +12,24 @@ export interface GraphStatus {
   error_detail: string | null;
 }
 
+/** What model the agent would call. The credential is never exposed. */
+export interface AgentStatus {
+  configured: boolean;
+  model: string;
+  endpoint: string;
+  reasoning: boolean;
+  max_model_turns: number;
+  max_tool_calls: number;
+  max_completion_tokens: number;
+  deadline_seconds: number;
+}
+
 export interface ReadinessResponse {
   ready: boolean;
   service: string;
   version: string;
   falkordb: GraphStatus;
+  agent: AgentStatus;
   implemented_scope: string[];
 }
 
@@ -132,6 +145,11 @@ export interface PlanSummary {
   execution_fingerprint: string;
   invalidation_reason: string | null;
   approved_by: string | null;
+  goal: string;
+  alternative_flag: boolean;
+  disposition: string;
+  note: string;
+  staged_by: string | null;
   assigned_reviewer_id: string | null;
 }
 
@@ -151,6 +169,82 @@ export interface CorrectionCase {
   changed_batch_ids: string[];
   affected_lanes: { lane_id: string; role: string }[];
   plans: PlanSummary[];
+  agent_runs: AgentRunSummary[];
+  clarification_field: string | null;
+  clarification_question: string | null;
+  clarification_context_ids: string | null;
+  clarification_asked_at: string | null;
+}
+
+export type JobStatus =
+  | "QUEUED"
+  | "INVESTIGATING"
+  | "STAGING"
+  | "AWAITING_REVIEW"
+  | "NEEDS_CLARIFICATION"
+  | "TOOL_ERROR"
+  | "STALE_CONTEXT"
+  | "TIMED_OUT"
+  | "INTERRUPTED";
+
+export interface AgentRunSummary {
+  job_id: string;
+  status: JobStatus;
+  started_at: string;
+  finished_at: string | null;
+  plan_id: string | null;
+  error_code: string | null;
+  elapsed_ms: number;
+  request_text: string;
+}
+
+/** One real recorded event: a graph read, a model turn, or a tool call. */
+export interface AgentEvent {
+  at: string;
+  kind: "context" | "model" | "tool_start" | "tool" | "message" | "delay";
+  tool?: string;
+  turn?: number;
+  ok?: boolean;
+  code?: string | null;
+  elapsed_ms?: number;
+  finish_reason?: string;
+  requested_tools?: string[];
+  content_chars?: number;
+  arguments?: Record<string, unknown>;
+  summary?: string;
+  usage?: AgentUsage;
+  context_revision?: number;
+}
+
+export interface AgentUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+}
+
+export interface AgentJob {
+  job_id: string;
+  case_id: string;
+  status: JobStatus;
+  request_text: string;
+  requested_by: string;
+  model: string;
+  endpoint: string;
+  reasoning: boolean;
+  started_at: string;
+  finished_at: string | null;
+  events: AgentEvent[];
+  usage: Partial<AgentUsage>;
+  tool_call_count: number;
+  model_turn_count: number;
+  elapsed_ms: number;
+  plan_id: string | null;
+  error_code: string | null;
+  error_detail: string | null;
+  clarification_question: string | null;
+  clarification_field: string | null;
+  terminal: boolean;
 }
 
 export interface ArtifactEntry {
@@ -214,6 +308,7 @@ export interface Plan {
   context_revision: number;
   prior_release_id: string;
   staged_at: string;
+  staged_by: string | null;
   approved_at: string | null;
   acknowledged_alternative: boolean | null;
   invalidation_reason: string | null;

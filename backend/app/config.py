@@ -6,6 +6,13 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = BACKEND_ROOT.parent
+
+# Absolute env-file paths, so `uvicorn app.main:app` behaves the same whether it
+# is launched from the repository root or from `backend/`. Explicit environment
+# variables still win over both files, and a later file wins over an earlier
+# one, so a backend-local override beats the shared repository file.
+ENV_FILES = (REPO_ROOT / ".env", BACKEND_ROOT / ".env")
 
 # A recognisable placeholder, so a deployment that forgot to set a real secret
 # fails loudly at startup instead of signing sessions with a published value.
@@ -18,7 +25,7 @@ LOCAL_ENVIRONMENTS = frozenset({"development", "test"})
 class Settings(BaseSettings):
     """Non-secret runtime configuration. See `.env.example` at the repo root."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=ENV_FILES, extra="ignore")
 
     falkordb_host: str = "127.0.0.1"
     falkordb_port: int = 6379
@@ -51,9 +58,49 @@ class Settings(BaseSettings):
     # browser; locally, the API generates and logs throwaway values instead.
     demo_passcodes: str = ""
 
+    # -- the one NVIDIA-hosted model -----------------------------------------
+    # The key lives only in the environment. It is never logged, never returned
+    # by an endpoint, and never written into an artifact or a receipt.
+    nvidia_api_key: str = ""
+    nvidia_api_base_url: str = "https://integrate.api.nvidia.com/v1"
+    nvidia_model: str = "nvidia/nemotron-3-super-120b-a12b"
+
+    # Model-card sampling recommendation for this model.
+    nvidia_temperature: float = 1.0
+    nvidia_top_p: float = 0.95
+
+    # Verified against this hosted endpoint: `chat_template_kwargs.thinking` is
+    # honoured, and turning it off reports `reasoning_tokens: 0`. A top-level
+    # `reasoning_effort` is accepted but changes nothing, so the control is
+    # effectively binary.
+    #
+    # Reasoning is off by default. With it on, the measured two-turn job ran 22
+    # to 28 seconds against the frozen 25-second budget; with it off the same
+    # runs reached the same typed intent in roughly half the time. This is the
+    # one supported reasoning configuration chosen on observed correctness and
+    # latency, not a second model. Private reasoning text, when enabled, is read
+    # only to judge completion status and is never logged or persisted.
+    nvidia_reasoning: bool = False
+
+    # -- bounded agent job budget --------------------------------------------
+    agent_max_model_turns: int = 4
+    agent_max_tool_calls: int = 6
+    agent_max_completion_tokens: int = 4096
+    # Request through persisted complete candidates, the frozen demo budget.
+    agent_deadline_seconds: float = 25.0
+    # A per-request cap below the job deadline. One slow turn is still bounded
+    # by the deadline itself, which is checked before every model call.
+    agent_request_timeout_seconds: float = 24.0
+    # One API worker with an in-process lock: keep concurrent jobs small.
+    agent_max_concurrent_jobs: int = 2
+
     @property
     def is_local(self) -> bool:
         return self.app_env.strip().lower() in LOCAL_ENVIRONMENTS
+
+    @property
+    def model_configured(self) -> bool:
+        return bool(self.nvidia_api_key.strip() and self.nvidia_model.strip())
 
 
 @lru_cache(maxsize=1)

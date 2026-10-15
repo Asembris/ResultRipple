@@ -1,4 +1,4 @@
-import type { Actor, Plan, ReadinessResponse, Workspace } from "./types";
+import type { Actor, AgentJob, AgentRunSummary, Plan, ReadinessResponse, Workspace } from "./types";
 
 /**
  * Same-origin by default: the dev server proxies `/api` to the backend so the
@@ -105,6 +105,22 @@ export const stageReview = (caseId: string, intent: StageIntent) =>
     method: "POST",
     body: JSON.stringify({ ...intent, focus_occurrence_ids: [] }),
   });
+
+/**
+ * Start one bounded agent run. The body carries the analyst's own words and
+ * nothing else: no scope, reviewer, disposition, or number.
+ */
+export const startAgentRun = (caseId: string, requestText: string) =>
+  request<{ job_id: string; case_id: string; status: string; request_text: string; model: string }>(
+    `/cases/${caseId}/agent-runs`,
+    { method: "POST", body: JSON.stringify({ request_text: requestText }) },
+  );
+
+/** The job as the server recorded it: real status, tool events, usage, result. */
+export const fetchJob = (jobId: string) => request<AgentJob>(`/jobs/${jobId}`);
+
+export const fetchAgentRuns = (caseId: string) =>
+  request<{ case_id: string; runs: AgentRunSummary[] }>(`/cases/${caseId}/agent-runs`);
 
 export const refreshReview = (caseId: string) =>
   request<Plan>(`/cases/${caseId}/refresh-review`, { method: "POST" });
