@@ -4,6 +4,7 @@ import ReviewPaneLegacy from "./ReviewPane";
 import CorrectionStage from "./stages/CorrectionStage";
 import DeskStage from "./stages/DeskStage";
 import InvestigationStage from "./stages/InvestigationStage";
+import ReviewStage from "./stages/ReviewStage";
 import type { StageContext } from "./stages/context";
 import { STEP_NAMES } from "../workflow";
 
@@ -32,6 +33,8 @@ export default function WorkflowPanel({ context }: { context: StageContext }) {
         <CorrectionStage context={context} />
       ) : step === 3 ? (
         <InvestigationStage context={context} />
+      ) : step === 4 ? (
+        <ReviewStage context={context} />
       ) : (
         <div className="rr-legacy">
           <p className="rr-mono">

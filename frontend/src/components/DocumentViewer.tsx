@@ -1,17 +1,18 @@
 import { candidateUrl, editionUrl } from "../api";
+import PaperFrame, { usePaperBytes } from "./PaperFrame";
 import type { StageContext, ViewerTab } from "./stages/context";
+import type { Assessment, DocumentScope, Release } from "../types";
 
 /**
  * The report viewer.
  *
  * The chrome is the approved design; the page inside each sheet is the real
  * file the backend serves — the staged candidate bytes, or the bytes recorded
- * in a committed release. Nothing here re-typesets a report, because a
- * re-typeset report is not the edition.
+ * in a committed release — with the hash the server reported for them.
  *
- * The before/after strip above each sheet is a comparison of the registered
- * cards, built from `assessment[].previous` and `.current`. It is labelled as
- * such and is never presented as part of the file.
+ * The before/after strip above each sheet compares the registered card using
+ * `assessment[].previous` and `.current`. It is labelled as a comparison and is
+ * never presented as part of the file.
  */
 export default function DocumentViewer({
   tab,
@@ -42,7 +43,9 @@ export default function DocumentViewer({
         : "No edition has been issued yet";
 
   const sheets = workspace.scope.filter((doc) =>
-    active === "candidate" ? doc.document_id in candidates : release?.document_ids.includes(doc.document_id),
+    active === "candidate"
+      ? doc.document_id in candidates
+      : release?.document_ids.includes(doc.document_id),
   );
 
   return (
@@ -74,81 +77,100 @@ export default function DocumentViewer({
 
       <div className="rr-viewer__body">
         <div className="rr-viewer__grid">
-          {sheets.map((doc) => {
-            const assessment = workspace.assessment.find((entry) => entry.document_id === doc.document_id);
-            const changed = !!assessment && (assessment.relation_changed || assessment.magnitude_changed);
-            const sha =
-              active === "candidate"
-                ? candidates[doc.document_id]
-                : release
-                  ? (JSON.parse(release.artifacts) as Record<string, { sha256: string }>)[doc.document_id]?.sha256
-                  : undefined;
-            const src =
-              active === "candidate" && plan
-                ? candidateUrl(plan.plan_id, doc.document_id)
-                : release
-                  ? editionUrl(release.release_id, doc.document_id)
-                  : "";
-
-            return (
-              <article className="rr-paper" key={`${active}-${doc.document_id}`}>
-                <div className="rr-paper__head">
-                  <div className="rr-paper__kicker">
-                    <span>{doc.owner_name ? `Owner ${doc.owner_name}` : doc.document_id}</span>
-                    <span>{active === "candidate" ? "Candidate · draft" : `Version ${release?.sequence ?? ""}`}</span>
-                  </div>
-                  <h2 className="rr-paper__title">{doc.title}</h2>
-                  <div className="rr-paper__meta">
-                    {sha ? `sha256 ${sha.slice(0, 16)}…` : "file hash unavailable"}
-                  </div>
-                  <div className="rr-paper__rule" />
-                </div>
-
-                {assessment && (
-                  <div className={`rr-paper__diff${changed ? " rr-paper__diff--changed" : ""}`}>
-                    <div className="rr-paper__diff-label">
-                      Registered finding · {changed ? "corrected against the published edition" : "unchanged"}
-                    </div>
-                    {changed && assessment.previous?.text && (
-                      <div className="rr-paper__diff-was">{assessment.previous.text}</div>
-                    )}
-                    <div className="rr-paper__diff-now">{assessment.current.text}</div>
-                    <div className="rr-paper__diff-note">
-                      Comparison of the registered card, from the workspace assessment. The sheet
-                      below is the file itself.
-                    </div>
-                  </div>
-                )}
-
-                <iframe
-                  className="rr-paper__frame"
-                  title={`${doc.title} — ${active === "candidate" ? "candidate draft" : "issued edition"}`}
-                  src={src}
-                  sandbox=""
-                />
-
-                <div className="rr-paper__foot">
-                  <span className="rr-paper__scope">
-                    Editorial context in this report is not assessed by ResultRipple.
-                  </span>
-                  {active === "current" && release && (
-                    <a
-                      className="rr-paper__download"
-                      href={editionUrl(release.release_id, doc.document_id, true)}
-                      download
-                    >
-                      Download Version {release.sequence}
-                    </a>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-          {sheets.length === 0 && (
-            <p className="rr-copy">Nothing to show here yet.</p>
-          )}
+          {sheets.map((doc) => (
+            <Sheet
+              key={`${active}-${doc.document_id}`}
+              doc={doc}
+              assessment={workspace.assessment.find((entry) => entry.document_id === doc.document_id) ?? null}
+              release={release}
+              mode={active}
+              url={
+                active === "candidate" && plan
+                  ? candidateUrl(plan.plan_id, doc.document_id)
+                  : release
+                    ? editionUrl(release.release_id, doc.document_id)
+                    : null
+              }
+              downloadUrl={
+                active === "current" && release
+                  ? editionUrl(release.release_id, doc.document_id, true)
+                  : null
+              }
+            />
+          ))}
+          {sheets.length === 0 && <p className="rr-copy">Nothing to show here yet.</p>}
         </div>
       </div>
     </div>
+  );
+}
+
+function Sheet({
+  doc,
+  assessment,
+  release,
+  mode,
+  url,
+  downloadUrl,
+}: {
+  doc: DocumentScope;
+  assessment: Assessment | null;
+  release: Release | null;
+  mode: ViewerTab;
+  url: string | null;
+  downloadUrl: string | null;
+}) {
+  const bytes = usePaperBytes(url);
+  const changed = !!assessment && (assessment.relation_changed || assessment.magnitude_changed);
+
+  return (
+    <article className="rr-paper">
+      <div className="rr-paper__head">
+        <div className="rr-paper__kicker">
+          <span>{doc.owner_name ? `Owner ${doc.owner_name}` : doc.document_id}</span>
+          <span>
+            {mode === "candidate" ? "Candidate · draft" : `Version ${release?.sequence ?? ""}`}
+          </span>
+        </div>
+        <h2 className="rr-paper__title">{doc.title}</h2>
+        <div className="rr-paper__meta">
+          {bytes.sha ? `sha256 ${bytes.sha}` : "file hash unavailable"}
+          {bytes.draft ? " · served with a draft marker" : ""}
+        </div>
+        <div className="rr-paper__rule" />
+      </div>
+
+      {assessment && (
+        <div className={`rr-paper__diff${changed ? " rr-paper__diff--changed" : ""}`}>
+          <div className="rr-paper__diff-label">
+            Registered finding · {changed ? "corrected against the published edition" : "unchanged"}
+          </div>
+          {changed && assessment.previous?.text && (
+            <div className="rr-paper__diff-was">{assessment.previous.text}</div>
+          )}
+          <div className="rr-paper__diff-now">{assessment.current.text}</div>
+          <div className="rr-paper__diff-note">
+            Comparison of the registered card, from the workspace assessment. The sheet below is the
+            file itself, exactly as the server serves it.
+          </div>
+        </div>
+      )}
+
+      <PaperFrame
+        title={`${doc.title} — ${mode === "candidate" ? "candidate draft" : "issued edition"}`}
+        bytes={bytes}
+      />
+
+      <div className="rr-paper__foot">
+        <span className="rr-paper__scope">
+          Editorial context in this report is not assessed by ResultRipple.
+        </span>
+        {downloadUrl && (
+          <a className="rr-paper__download" href={downloadUrl} download>
+            Download Version {release?.sequence}
+          </a>
+        )}
+      </div>
+    </article>
   );
 }

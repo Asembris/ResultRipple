@@ -1180,3 +1180,16 @@
 .rr-legacy button:disabled { background: var(--rr-disabled); }
 .rr-legacy a { color: var(--rr-amber); }
 .rr-legacy .meta, .rr-legacy .unassessed, .rr-legacy .label, .rr-legacy .hint { color: var(--rr-ink-3); font-family: var(--rr-mono); }
+
+.rr-paper__loading {
+  flex: 1;
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  font: 400 13px/1.5 var(--rr-mono);
+  color: var(--rr-paper-ink-3);
+  text-align: center;
+}
+.rr-paper__loading--failed { color: var(--rr-paper-struck); }
