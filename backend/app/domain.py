@@ -93,9 +93,36 @@ DISPOSITION_DECISION_STATUS = {
     DISPOSITION_RETURN_FOR_REVIEW: "RETURNED_FOR_REVIEW",
 }
 
-VERIFICATION_SCOPE_STATEMENT = (
-    "Two registered finding occurrences and one typed decision-status block "
-    "checked. Editorial narrative not assessed by ResultRipple."
+_COUNT_WORDS = ("No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine")
+
+
+def _counted(count: int, singular: str, plural: str) -> str:
+    word = _COUNT_WORDS[count] if 0 <= count < len(_COUNT_WORDS) else str(count)
+    return f"{word} {singular if count == 1 else plural}"
+
+
+def verification_scope_statement(occurrence_count: int, decision_block_count: int) -> str:
+    """What a positive check covers, counted from the package actually checked.
+
+    It is derived, never fixed, so a package with one registered card never
+    claims two.
+    """
+    occurrences = _counted(
+        occurrence_count, "registered finding occurrence", "registered finding occurrences"
+    )
+    decisions = _counted(
+        decision_block_count, "typed decision-status block", "typed decision-status blocks"
+    )
+    return (
+        f"{occurrences} and {decisions[0].lower()}{decisions[1:]} checked. "
+        "Editorial narrative not assessed by ResultRipple."
+    )
+
+
+# Shown only where no package could be read at all, such as an evidence hold.
+VERIFICATION_SCOPE_UNAVAILABLE = (
+    "No package checked while current context is held. "
+    "Editorial narrative not assessed by ResultRipple."
 )
 
 

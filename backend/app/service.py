@@ -231,7 +231,7 @@ def _scope_record(context: CaseContext, intent: IntentFrame) -> dict[str, Any]:
         },
         # Recorded for transparency. It never narrows the scope above.
         "requested_focus": list(intent.focus_occurrence_ids),
-        "verification_scope": domain.VERIFICATION_SCOPE_STATEMENT,
+        "verification_scope": context.scope.verification_scope(),
     }
 
 
@@ -662,6 +662,7 @@ def issue_release(
         }
         receipt = _receipt(
             plan=plan,
+            scope=scope,
             context=context,
             report=report,
             actor=actor,
@@ -734,9 +735,23 @@ def _title_for(scope: dict[str, Any], document_id: str) -> str:
     return document_id
 
 
+def _verified_scope_statement(scope: dict[str, Any]) -> str:
+    """Counted from the inventory the independent verifier just checked."""
+    return domain.verification_scope_statement(
+        len(scope["occurrences"]),
+        sum(
+            1
+            for document in scope["documents"]
+            for block in document["blocks"]
+            if block["kind"] == "decision"
+        ),
+    )
+
+
 def _receipt(
     *,
     plan: dict[str, Any],
+    scope: dict[str, Any],
     context: CaseContext,
     report: Any,
     actor: Actor,
@@ -772,7 +787,7 @@ def _receipt(
         "membership_sha": context.evidence.membership_sha(),
         "artifacts": artifacts,
         "verification": report.as_dict(),
-        "verification_scope": domain.VERIFICATION_SCOPE_STATEMENT,
+        "verification_scope": _verified_scope_statement(scope),
     }
 
 
@@ -1229,6 +1244,7 @@ def workspace_view(graph: GraphClient, csv_path: Path) -> dict[str, Any]:
             }
             for doc in context.scope.documents
         ]
+        verification_scope = context.scope.verification_scope()
         assessment = context.assessment()
         decision = {
             "decision_id": context.authority.decision_id,
@@ -1245,6 +1261,7 @@ def workspace_view(graph: GraphClient, csv_path: Path) -> dict[str, Any]:
         evidence = comparison = decision = None  # type: ignore[assignment]
         scope = []
         assessment = []
+        verification_scope = domain.VERIFICATION_SCOPE_UNAVAILABLE
 
     cases = []
     for row in graph.cases():
@@ -1270,5 +1287,5 @@ def workspace_view(graph: GraphClient, csv_path: Path) -> dict[str, Any]:
         "current_release": graph.release(current_release_id) if current_release_id else None,
         "releases": graph.release_history(),
         "people": graph.people(),
-        "verification_scope": domain.VERIFICATION_SCOPE_STATEMENT,
+        "verification_scope": verification_scope,
     }

@@ -401,6 +401,13 @@ class PackageScope:
     def occurrences(self) -> tuple[OccurrenceRecord, ...]:
         return tuple(occ for doc in self.documents for occ in doc.occurrences)
 
+    def verification_scope(self) -> str:
+        """The scope statement for exactly this inventory of registered blocks."""
+        return domain.verification_scope_statement(
+            len(self.occurrences),
+            sum(1 for doc in self.documents for b in doc.blocks if b["kind"] == "decision"),
+        )
+
     def document(self, document_id: str) -> DocumentRecord:
         for doc in self.documents:
             if doc.document_id == document_id:

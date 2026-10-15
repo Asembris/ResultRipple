@@ -83,7 +83,7 @@ def render_package(
         "organization": ORGANIZATION,
         "dataset_sha": context.evidence.raw_sha,
         "membership_sha": context.evidence.membership_sha(),
-        "scope_statement": domain.VERIFICATION_SCOPE_STATEMENT,
+        "scope_statement": context.scope.verification_scope(),
     }
     decision = {
         "decision_id": context.authority.decision_id,
