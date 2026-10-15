@@ -8,6 +8,7 @@ stub could produce is not evidence that the product works.
 from __future__ import annotations
 
 import os
+import secrets
 import tempfile
 from pathlib import Path
 
@@ -16,6 +17,18 @@ from pathlib import Path
 _ARTIFACT_ROOT = Path(tempfile.gettempdir()) / "resultripple-tests" / "artifacts"
 os.environ.setdefault("FALKORDB_GRAPH", "rr_test")
 os.environ.setdefault("ARTIFACT_ROOT", str(_ARTIFACT_ROOT))
+os.environ.setdefault("APP_ENV", "test")
+
+# Credentials for this test run, generated per session so no passcode value is
+# ever written into the repository. Locally the API generates throwaway ones and
+# logs them; a deployment must provision real ones through the environment.
+TEST_PASSCODES = {
+    person_id: secrets.token_urlsafe(12)
+    for person_id in ("person-ari", "person-noor", "person-sam", "person-operator")
+}
+os.environ.setdefault(
+    "DEMO_PASSCODES", ",".join(f"{k}={v}" for k, v in TEST_PASSCODES.items())
+)
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -62,7 +75,10 @@ def seeded(live_graph):
 def session_for(person_id: str) -> TestClient:
     """An authenticated demo client. Capability still comes from the graph."""
     http = TestClient(app)
-    response = http.post("/auth/demo-session", json={"person_id": person_id})
+    response = http.post(
+        "/auth/demo-session",
+        json={"person_id": person_id, "passcode": TEST_PASSCODES[person_id]},
+    )
     assert response.status_code == 200, response.text
     return http
 
