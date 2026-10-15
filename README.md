@@ -22,6 +22,7 @@ who may approve the release.
 | Frontend | React 18, TypeScript, Vite, plain CSS |
 | API | Python 3.12, FastAPI, Pydantic, Uvicorn (single worker) |
 | Graph | FalkorDB 6.0.2, official `falkordb` Python client |
+| Model | `nvidia/nemotron-3-super-120b-a12b`, NVIDIA-hosted, through the OpenAI-compatible client |
 | Artifacts | Jinja2 with autoescaping, standard-library exact arithmetic |
 | Infrastructure | Docker Compose, one named volume with AOF persistence |
 
@@ -68,6 +69,20 @@ person-ari=... person-noor=... person-sam=... person-operator=...
 Copy them from that log when you sign in. They are never committed, never shipped
 in the frontend bundle, and never returned by any endpoint.
 
+The agent needs an NVIDIA credential. Put it in the repository-root `.env` (which is
+Git-ignored) or in the environment; either location is loaded whichever directory you
+start Uvicorn from, and real environment variables win over both:
+
+```
+NVIDIA_API_KEY=...
+NVIDIA_API_BASE_URL=https://integrate.api.nvidia.com/v1
+NVIDIA_MODEL=nvidia/nemotron-3-super-120b-a12b
+```
+
+Without it the API still runs: `GET /ready` reports `agent.configured: false`, agent runs
+are refused with `MODEL_NOT_CONFIGURED`, and the app offers the labelled manual
+correction workflow instead.
+
 ### 4. Start the frontend
 
 ```bash
@@ -88,9 +103,15 @@ HttpOnly demo session cookie stays first-party.
    memberships move from South to Pilot; the raw CSV and every recorded cost stay
    unchanged. Both published cards are immediately marked out of date — by direction, not
    by magnitude, since the effect stays 40 cents while its meaning reverses.
-3. Click **Stage the review**. The engine enumerates every registered occurrence itself,
-   renders both candidate editions, and assigns the review to whoever the graph currently
-   names — not to a document owner.
+3. Under **Ask the agent**, send the request in your own words — the composer starts
+   with *"Update the reports, but keep South as the cheaper option in the rollout memo."*
+   The run's real tool events appear as they complete. The agent investigates through the
+   graph, recognises that the requested cost endorsement is contradicted, and stages an
+   explicit alternative: correct both registered uses and return the proposal for review.
+   The engine enumerates every registered occurrence itself, renders both candidate
+   editions, and assigns the review to whoever the graph currently names — not to a
+   document owner. Ask it something ambiguous instead — *"Keep South in the memo; send
+   it."* — and it records one focused question rather than guessing.
 4. Sign in as **Noor Haddad** with her own passcode, open both candidate previews,
    acknowledge the proposed alternative, and click **Approve revision**. Approval binds to
    one exact plan version and execution fingerprint.
@@ -100,7 +121,8 @@ HttpOnly demo session cookie stays first-party.
 
 Try it as the wrong person: Sam owns the memo and holds a review-capable identity, and
 still cannot approve the case. Try it with the wrong credential: Ari's passcode does not
-authenticate anyone as Noor.
+authenticate anyone as Noor. Try telling the agent it already has permission — there is no
+tool through which it could act on that.
 
 ## The frozen dataset
 
@@ -141,6 +163,14 @@ Copy `.env.example` to `.env`; it contains no secrets.
 | `SESSION_SECRET` | development placeholder | Signs the demo session cookie. A deployment must set a real value of at least 32 characters |
 | `DEMO_PASSCODES` | unset | `person-id=passcode` pairs gating sign-in. Generated and logged locally; required in a deployment |
 | `VITE_API_BASE_URL` | `/api` | API base used by the frontend (same-origin by default) |
+| `NVIDIA_API_KEY` | unset | The agent's credential. Environment only; never logged, returned, or written into an artifact |
+| `NVIDIA_API_BASE_URL` | `https://integrate.api.nvidia.com/v1` | OpenAI-compatible endpoint |
+| `NVIDIA_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | The one frozen model |
+| `NVIDIA_REASONING` | `false` | Hosted reasoning control, verified supported. See [docs/agent.md](docs/agent.md) |
+| `AGENT_DEADLINE_SECONDS` | `25` | Request through persisted candidates |
+| `AGENT_MAX_MODEL_TURNS` · `AGENT_MAX_TOOL_CALLS` | `4` · `6` | Per-job ceilings |
+| `AGENT_MAX_COMPLETION_TOKENS` | `4096` | Per-job ceiling, including reported reasoning |
+| `AGENT_MAX_CONCURRENT_JOBS` | `2` | Process-wide bound; one worker, one lock |
 
 If port 8000 is already taken, start Uvicorn elsewhere and point the dev proxy at it with
 `API_PROXY_TARGET=http://127.0.0.1:8010 npm run dev`.
@@ -156,7 +186,10 @@ If port 8000 is already taken, start Uvicorn elsewhere and point the dev proxy a
 | `GET /workspace` | Current evidence, live comparison, registered scope, per-occurrence freshness, decision and current reviewer, cases and releases. |
 | `GET /comparisons/{id}` | Approved definition plus live counts and the exact result. |
 | `POST /corrections/{case_id}/apply` | Analyst confirms the dispatch source; one guarded mutation moves exactly the recorded batches. |
-| `POST /cases/{case_id}/stage-review` | Renders real candidates and persists one review plan over the complete registered scope. |
+| `POST /cases/{case_id}/agent-runs` | Starts one bounded agent job from the analyst's own words. Persisted before any inference; `202` with a job id. |
+| `GET /jobs/{job_id}` | Real status, completed tool events, usage, elapsed time, errors and the resulting plan id. |
+| `GET /cases/{case_id}/agent-runs` | The runs recorded for a case. |
+| `POST /cases/{case_id}/stage-review` | The manual fallback: renders real candidates and persists one review plan over the complete registered scope. |
 | `POST /cases/{case_id}/refresh-review` | Deterministic re-staging for an authorized reviewer-only change. No inference, no transferred approval. |
 | `GET /plans/{id}` · `/plans/{id}/candidates/{document_id}` | Plan fingerprint and scope; the actual staged draft bytes. |
 | `POST /plans/{id}/approve` · `/reject` | Current assigned reviewer only, against one exact version and fingerprint. |
@@ -168,13 +201,22 @@ If port 8000 is already taken, start Uvicorn elsewhere and point the dev proxy a
 Refusals carry a stable code — `CORRECTION_SCOPE_MISMATCH`, `MISSING_PROVENANCE`,
 `DUPLICATE_PROVENANCE`, `NO_REVIEWER`, `AMBIGUOUS_REVIEWER`, `NOT_AUTHORIZED`,
 `ALTERNATIVE_NOT_ACKNOWLEDGED`, `STALE_PLAN`, `AUTHORITY_CHANGED`, `CANDIDATE_MISMATCH`,
-`VERIFICATION_FAILED` — plus the witness the UI needs to explain them.
+`VERIFICATION_FAILED`, `MODEL_NOT_CONFIGURED`, `AGENT_RUN_IN_FLIGHT`, `AGENT_BUSY` — plus
+the witness the UI needs to explain them.
 
 ## Graph model and queries
 
 See [docs/graph-model.md](docs/graph-model.md) for the schema, the cardinality rules, and
 the FalkorDB 6.0.2 compatibility notes, and [docs/queries.md](docs/queries.md) for the
 essential queries including both guarded mutations.
+
+## The agent
+
+See [docs/agent.md](docs/agent.md) for the four typed tools, the bounded loop, the
+authority boundary, the model configuration and the measured latency. In short: the model
+interprets the request and chooses between correcting and holding; the engine owns every
+figure, the card wording, the complete scope and every permission check; and a staged plan
+is a draft that only the currently assigned reviewer can approve.
 
 ## How correctness is enforced
 
@@ -199,6 +241,12 @@ essential queries including both guarded mutations.
   as one. Passcodes are held server-side, compared in constant time, and never served to
   the browser; a deployment that still carries the development session secret or has no
   passcodes provisioned refuses to start.
+- **The model supplies no fact.** It has four typed tools with strict schemas and no
+  capability to approve, release, reassign, correct evidence, or name a path. Its
+  principal is not a `Person` in the graph, so every authority check fails for it by
+  construction. Its note is shown as unassessed commentary and never enters a card. A
+  missing, empty or truncated completion is reported as a failure, never narrated as a
+  staged review.
 - **An independent verifier** (`backend/app/verify_artifacts.py`) re-reads the immutable
   CSV and the membership snapshot, re-derives the arithmetic, re-states the expected
   sentence from its own copy of the grammar, and parses the actual generated bytes. It
@@ -228,6 +276,22 @@ exercised against the real issued bytes and must reject a reversed direction, a 
 magnitude, a contradicted assertion left behind, edited narrative, a wrong decision
 disposition, a missing second report, and bytes that differ from the approved hashes.
 
+The agent is covered at three levels. Its tools run against the real graph with no model
+involved: unknown tools, invalid arguments, a stale revision, a provenance gap, a focused
+subset that cannot narrow the scope, repeated staging that cannot duplicate a plan, an
+unstated request target that cannot be staged under any goal, a persisted clarification,
+and an agent principal that cannot approve, reject, release, reassign or correct. The
+bounded loop runs against a scripted completion endpoint for the failure modes — empty,
+truncated, prose-only, rate-limited, timed out, unreachable, malformed arguments, an
+invented tool, an exhausted budget, a world that changes between inspection and staging,
+and the turn after an unresolved intent being constrained to the question. Finally,
+`tests/test_agent_live.py` makes **real NVIDIA calls** for the semantic scenarios — a
+contradicted instruction, an ordinary request, genuine ambiguity, an instruction injected
+into the source note, and a real tool failure — and verifies the candidate bytes the agent
+actually staged with the independent verifier. Those skip when no credential is
+configured; the five-run latency measurement is marked `readiness` and deselected by
+default because it spends five inference budgets.
+
 Live-graph tests skip themselves when no FalkorDB is reachable, and refuse to run against
 the `resultripple` demo graph.
 
@@ -255,16 +319,19 @@ The complete manual vertical slice works end to end against real FalkorDB:
   and failing closed on stale approval or changed authority.
 - Immutable editions, a single current-release pointer, idempotent retries, and a run
   receipt; verified to survive a FalkorDB container restart.
+- A real NVIDIA tool-using agent that interprets the request, investigates through live
+  graph queries, exposes the conflict between what was asked and what the evidence
+  supports, and stages a reviewable alternative — or asks one question instead. Bounded
+  jobs, honest failure states, and an unfinished run marked interrupted after a restart.
 
-Not implemented yet: finding creation and reuse through the UI, the NVIDIA tool-using
-agent and natural-language intent interpretation, the reviewer-reassignment and
-review-refresh *interface* (the API, its guards and its tests already exist, because the
-release guard depends on them), the final production UI, and deployment. Those arrive on
-later feature branches.
+Not implemented yet: finding creation and reuse through the UI, the
+reviewer-reassignment and review-refresh *interface* (the API, its guards and its tests
+already exist, because the release guard depends on them), the final production UI, and
+deployment. Those arrive on later feature branches.
 
-In this phase the typed intent frame is chosen deterministically by a person rather than
-by a model. The staging path, the scope enumeration, the rendering, and every permission
-check are the same ones the agent will drive through typed tools.
+The manual staging path remains as an explicitly labelled fallback for when inference is
+unavailable. It runs the same deterministic staging with a human-chosen typed frame, and
+is not an agent demonstration.
 
 ## Limitations
 
@@ -284,6 +351,12 @@ The commit protocol is a local filesystem protocol plus one guarded graph write,
 distributed transaction. Before the pointer commit a crash can leave a private orphan
 directory; after it, referenced files must exist and hash-match. The API runs as a single
 worker because the mutation lock is in-process.
+
+The model's interpretation is fallible. A typed goal is the model's reading of a request,
+not proof that the analyst meant it, which is why the raw request stays beside it and a
+human has to acknowledge any alternative before approving. Measured over repeated runs the
+ambiguous request reached a question every time once the tool layer began forcing it, but
+this is a stochastic model on a shared endpoint: both its choices and its latency vary.
 
 All organizational data in this project is fictional demo setup.
 
