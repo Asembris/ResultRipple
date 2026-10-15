@@ -17,6 +17,28 @@ import {
  * trace, no success state the job did not reach.
  */
 
+/** The plan record the real app reads back for the case's latest version. */
+function planFor(workspace: Workspace) {
+  const kase = workspace.cases.find((entry) => entry.source_ref === "DX-2026-0914");
+  const summary = kase?.plans.at(-1);
+  if (!kase || !summary) return null;
+  return {
+    ...summary,
+    raw_request: kase.request_text,
+    candidates: Object.fromEntries(workspace.scope.map((doc, i) => [doc.document_id, String(i).repeat(64)])),
+    scope: null,
+    context_revision: workspace.context_revision,
+    prior_release_id: workspace.current_release?.release_id ?? "",
+    staged_at: "2026-10-15T10:00:00Z",
+    approved_at: null,
+    acknowledged_alternative: null,
+    superseded_by: null,
+    case_id: kase.case_id,
+    assigned_reviewer_name: workspace.people.find((p) => p.person_id === summary.assigned_reviewer_id)?.display_name ?? null,
+    covered_occurrence_ids: workspace.scope.flatMap((doc) => doc.occurrences.map((o) => o.occurrence_id)),
+  };
+}
+
 interface Call {
   url: string;
   method: string;
@@ -99,14 +121,22 @@ function stubApi({
         return new Response(JSON.stringify(job), { status: 200 });
       }
       if (url.includes("/plans/")) {
-        return new Response(JSON.stringify({ code: "PLAN_UNKNOWN" }), { status: 404 });
+        const plan = planFor(workspace);
+        if (!plan) return new Response(JSON.stringify({ code: "PLAN_UNKNOWN" }), { status: 404 });
+        return new Response(JSON.stringify(plan), { status: 200 });
       }
       return new Response(JSON.stringify(workspace), { status: 200 });
     }),
   );
 }
 
+/** The investigation panel, opening it the way a user does when it is the next step. */
 async function agentPanel() {
+  await screen.findByRole("complementary", { name: /workflow/i });
+  const open = await screen
+    .findByRole("button", { name: /Ask the agent to prepare the review/i })
+    .catch(() => null);
+  if (open) fireEvent.click(open);
   return within(await screen.findByRole("region", { name: /Ask the agent/i }));
 }
 
@@ -122,7 +152,7 @@ describe("the agent surface", () => {
     const panel = await agentPanel();
     const configuration = await panel.findAllByText((_, element) =>
       Boolean(
-        element?.className === "meta" &&
+        element?.className === "rr-mono" &&
           (element?.textContent ?? "").includes("nvidia/nemotron-3-super-120b-a12b at https://"),
       ),
     );
@@ -137,7 +167,7 @@ describe("the agent surface", () => {
     render(<App />);
 
     const panel = await agentPanel();
-    const composer = panel.getByLabelText(/your request, in your own words/i);
+    const composer = panel.getByLabelText(/request, in their own words/i);
     fireEvent.change(composer, { target: { value: "Fix the reports please." } });
     fireEvent.click(panel.getByRole("button", { name: /Run agent/ }));
 
@@ -174,12 +204,16 @@ describe("the agent surface", () => {
     render(<App />);
 
     const panel = await agentPanel();
-    expect(await panel.findByText(/What the agent proposes/)).toBeDefined();
+    expect(await panel.findByText("Requested")).toBeDefined();
+    expect(panel.getByText("Evidence")).toBeDefined();
+    expect(panel.getByText("Proposed")).toBeDefined();
     expect(panel.getByText(/keep the cheaper claim/)).toBeDefined();
-    expect(panel.getByText(/South costs 40 cents more per parcel than North/)).toBeDefined();
-    expect(panel.getByText(/correct\s+2 registered uses and return the proposal for review/)).toBeDefined();
+    expect(panel.getByText(/South costs \$0\.40 more per parcel than North/)).toBeDefined();
+    expect(
+      panel.getByText(/Correct 2 registered uses and return the .* for review/),
+    ).toBeDefined();
     // An alternative is a proposal, never recorded consent.
-    expect(panel.getByText(/an alternative is a proposal, not consent/)).toBeDefined();
+    expect(panel.getByText(/ALTERNATIVE . NEEDS ACKNOWLEDGMENT/)).toBeDefined();
     expect(panel.getByText(/unassessed commentary/)).toBeDefined();
   });
 
@@ -190,8 +224,9 @@ describe("the agent surface", () => {
     const panel = await agentPanel();
     expect(await panel.findByText(/Waiting for your answer/)).toBeDefined();
     expect(panel.getByText(AGENT_JOB_WAITING.clarification_question ?? "")).toBeDefined();
-    expect(panel.getByText(/no review is staged and nothing is published/)).toBeDefined();
-    expect(panel.queryByText(/What the agent proposes/)).toBeNull();
+    expect(panel.getByText(/No review is staged and nothing is published/)).toBeDefined();
+    expect(panel.getByText("NOTHING STAGED")).toBeDefined();
+    expect(panel.queryByText("Proposed")).toBeNull();
   });
 
   it("reports a failed run honestly rather than claiming a staged review", async () => {
@@ -210,7 +245,7 @@ describe("the agent surface", () => {
     expect(await panel.findByText(/Timed out/)).toBeDefined();
     expect(panel.getByText(/MODEL_TIMEOUT/)).toBeDefined();
     expect(panel.getByText(/Nothing was staged, approved, or published/)).toBeDefined();
-    expect(panel.queryByText(/What the agent proposes/)).toBeNull();
+    expect(panel.queryByText("Proposed")).toBeNull();
   });
 
   it("offers the labelled manual fallback when no model is configured", async () => {
@@ -222,7 +257,7 @@ describe("the agent surface", () => {
     expect((panel.getByRole("button", { name: /Run agent/ }) as HTMLButtonElement).disabled).toBe(
       true,
     );
-    expect(screen.getByText(/fallback without the agent/)).toBeDefined();
+    expect(screen.getByText(/honest\s+fallback/)).toBeDefined();
     expect(screen.getByRole("button", { name: /Stage manually instead/ })).toBeDefined();
   });
 
@@ -245,9 +280,7 @@ describe("the agent surface", () => {
     render(<App />);
 
     const panel = await agentPanel();
-    expect(await panel.findByText(/Sign in as the analyst to send a request/)).toBeDefined();
-    expect((panel.getByRole("button", { name: /Run agent/ }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect(await panel.findByText(/Sign in as the analyst above to send a request/)).toBeDefined();
+    expect(panel.queryByRole("button", { name: /Run agent/ })).toBeNull();
   });
 });
