@@ -4,6 +4,7 @@ import ReviewPaneLegacy from "./ReviewPane";
 import AuthorityStage from "./stages/AuthorityStage";
 import CorrectionStage from "./stages/CorrectionStage";
 import DeskStage from "./stages/DeskStage";
+import EditionsStage from "./stages/EditionsStage";
 import FreshApprovalStage from "./stages/FreshApprovalStage";
 import InvestigationStage from "./stages/InvestigationStage";
 import ReviewStage from "./stages/ReviewStage";
@@ -41,6 +42,8 @@ export default function WorkflowPanel({ context }: { context: StageContext }) {
         <AuthorityStage context={context} />
       ) : step === 6 ? (
         <FreshApprovalStage context={context} />
+      ) : step === 7 ? (
+        <EditionsStage context={context} />
       ) : (
         <div className="rr-legacy">
           <p className="rr-mono">
