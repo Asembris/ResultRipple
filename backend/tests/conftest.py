@@ -41,6 +41,8 @@ from app.deps import get_artifact_store, get_dataset_path, get_graph_client  # n
 from app.main import app  # noqa: E402
 from scripts import seed_demo  # noqa: E402
 
+from . import helpers  # noqa: E402
+
 
 @contextmanager
 def _client() -> Iterator[TestClient]:
@@ -69,9 +71,11 @@ def live_graph():
     graph = get_graph_client()
     probe = graph.probe()
     if not probe.connected:
-        pytest.skip(f"FalkorDB unavailable at {probe.endpoint}: {probe.error_detail}")
+        helpers.no_usable_graph(
+            f"FalkorDB unavailable at {probe.endpoint}: {probe.error_detail}"
+        )
     if get_settings().falkordb_graph == "resultripple":
-        pytest.skip("refusing to run destructive tests against the demo graph")
+        helpers.no_usable_graph("refusing to run destructive tests against the demo graph")
     return graph
 
 
