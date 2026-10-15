@@ -75,17 +75,18 @@ afterEach(() => {
 });
 
 describe("publishing desk", () => {
-  it("shows the shared finding, both registered uses and the proposal", async () => {
+  it("shows the published finding, both registered uses and the proposal", async () => {
     stubApi(WORKSPACE_V1);
 
     render(<App />);
 
-    expect(await screen.findByText(/1 shared finding/)).toBeDefined();
-    expect(screen.getByText(/2 registered uses/)).toBeDefined();
-    expect(screen.getByText("Operations Cost Review")).toBeDefined();
-    expect(screen.getByText("South Expansion Memo")).toBeDefined();
-    expect(screen.getByText("South lane expansion proposal")).toBeDefined();
-    expect(screen.getByText(/South costs less than North by \$0\.40 per parcel/)).toBeDefined();
+    expect(await screen.findByText(/One finding, two reports/)).toBeDefined();
+    const panel = within(screen.getByRole("complementary", { name: /workflow/i }));
+    expect(panel.getByText("Operations Cost Review")).toBeDefined();
+    expect(panel.getByText("South Expansion Memo")).toBeDefined();
+    expect(panel.getByText("South lane expansion proposal")).toBeDefined();
+    // The sentence is the one the current edition publishes, not a recomputed one.
+    expect(panel.getByText(/South costs \$0\.40 less per parcel than North/)).toBeDefined();
   });
 
   it("marks both published cards out of date after the correction", async () => {
@@ -124,7 +125,7 @@ describe("publishing desk", () => {
     fireEvent.change(await screen.findByLabelText(/Passcode for Noor Haddad/), {
       target: { value: "typed-by-the-operator" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: /Sign in/ }));
 
     await waitFor(() => {
       const signIn = calls.find((call) => call.url.includes("/auth/demo-session"));
@@ -139,7 +140,7 @@ describe("publishing desk", () => {
     stubApi(WORKSPACE_V1);
 
     render(<App />);
-    await screen.findByText(/1 shared finding/);
+    await screen.findByText(/One finding, two reports/);
 
     // The passcode field starts empty; nothing is prefilled for the operator.
     const nav = screen.getByRole("navigation", { name: /demo identities/i });
@@ -159,13 +160,14 @@ describe("publishing desk", () => {
     expect(within(nav).getByRole("button", { name: /Sam Oyelaran/ }).textContent).not.toContain("★");
   });
 
-  it("keeps the unassessed-narrative label on every report", async () => {
+  it("states the verification boundary and never a general all-clear", async () => {
     stubApi(WORKSPACE_V1);
 
     render(<App />);
 
-    const labels = await screen.findAllByText(/not assessed by ResultRipple/);
-    expect(labels.length).toBeGreaterThanOrEqual(2);
+    expect(await screen.findByText(/Two registered finding occurrences/)).toBeDefined();
+    expect(screen.queryByText(/truth verified/i)).toBeNull();
+    expect(screen.queryByText(/publication safe/i)).toBeNull();
   });
 
   it("stops instead of inventing an answer when the graph is unavailable", async () => {
