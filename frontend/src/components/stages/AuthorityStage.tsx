@@ -24,6 +24,10 @@ export default function AuthorityStage({ context }: { context: StageContext }) {
   const assignedIsCurrent = !plan?.assigned_reviewer_id || plan.assigned_reviewer_id === currentId;
   const moved = !assignedIsCurrent;
   const assignedName = plan?.assigned_reviewer_name ?? plan?.assigned_reviewer_id ?? "the reviewer";
+  // Only a plan the server has actually recorded an approval on can have an
+  // approval that the reassignment stranded. Without one there is nothing to
+  // strand: the plan is simply assigned to someone who no longer holds the case.
+  const hasApproval = !!plan?.approved_by;
 
   return (
     <div className="rr-stage">
@@ -100,17 +104,24 @@ export default function AuthorityStage({ context }: { context: StageContext }) {
           <div className="rr-alert-coral">
             <div className="rr-alert-coral__label">Assigned reviewer is no longer current</div>
             <div className="rr-alert-coral__line">
-              {assignedName}&apos;s approval was recorded under an assignment that no longer holds.
+              {hasApproval
+                ? `${assignedName}'s approval was recorded under an assignment that no longer holds.`
+                : `This plan is assigned to ${assignedName}, who no longer holds review authority.`}
             </div>
             <div className="rr-alert-coral__meta">
-              Nothing is invalidated until a release or approval is attempted — the backend decides
-              that, not this screen. Candidate bytes are unchanged · context rev{" "}
-              {workspace.context_revision}
+              {hasApproval
+                ? "Nothing is invalidated until a release or approval is attempted — the backend decides that, not this screen."
+                : "No approval has been recorded on this plan, so there is none to invalidate."}{" "}
+              Candidate bytes are unchanged · context rev {workspace.context_revision}
             </div>
           </div>
           {context.serverStep > 5 && (
             <button type="button" className="rr-primary" onClick={() => context.goTo(6)}>
-              <span>Next: {assignedName.split(" ")[0]} tries to issue</span>
+              <span>
+                {hasApproval
+                  ? `Next: ${assignedName.split(" ")[0]} tries to issue`
+                  : "Next: route a fresh review"}
+              </span>
               <span>→</span>
             </button>
           )}
