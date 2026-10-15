@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from . import domain, service
 from .artifacts import ArtifactStore
-from .auth import current_actor, issue_session, optional_actor
+from .auth import authenticate_demo_identity, clear_session, current_actor, issue_session, optional_actor
 from .config import Settings, get_settings
 from .deps import get_artifact_store, get_dataset_path, get_graph_client
 from .engine import EngineHold
@@ -80,21 +80,30 @@ async def create_demo_session(
     graph: GraphDep,
     settings: SettingsDep,
 ) -> SessionResponse:
-    """Authenticate a provisioned demo identity. Capability comes from the graph."""
+    """Authenticate a provisioned demo identity against its server-side passcode.
+
+    Capability still comes from the graph; the passcode only decides whether a
+    session may be issued for that identity at all.
+    """
     try:
         person = await _offload(graph.person, body.person_id)
     except GraphUnavailable as exc:
         raise _fail(exc) from exc
     if person is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown demo identity")
-    actor = Actor(
-        person_id=person["person_id"],
-        display_name=person["display_name"],
-        demo_role=person["demo_role"],
-        review_capable=bool(person["review_capable"]),
-    )
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            {"code": "UNKNOWN_IDENTITY", "detail": "unknown demo identity"},
+        )
+    actor = authenticate_demo_identity(settings, person, body.passcode)
     issue_session(response, settings, actor)
     return SessionResponse(**actor.__dict__)
+
+
+@router.post("/auth/sign-out", tags=["auth"])
+async def sign_out(response: Response, settings: SettingsDep) -> dict[str, Any]:
+    """Drop the session and go back to observing, which is read-only."""
+    clear_session(response, settings)
+    return {"actor": None}
 
 
 @router.get("/auth/session", tags=["auth"])

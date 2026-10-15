@@ -36,6 +36,9 @@ PERSON_NOOR = "person-noor"
 PERSON_SAM = "person-sam"
 PERSON_OPERATOR = "person-operator"
 
+# The identities that can hold a session at all. Everyone else observes.
+PROVISIONED_DEMO_IDENTITIES = (PERSON_ARI, PERSON_NOOR, PERSON_SAM, PERSON_OPERATOR)
+
 # Bump when a template changes in a way that changes rendered bytes. It is part
 # of candidate-content identity, so an approval cannot survive a silent change.
 TEMPLATE_VERSION = "tpl-1"

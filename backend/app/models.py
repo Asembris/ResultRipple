@@ -43,9 +43,14 @@ class ReadinessResponse(BaseModel):
 
 
 class DemoSessionRequest(BaseModel):
-    """Choose a provisioned demo identity. The server decides its capability."""
+    """Sign in as a provisioned demo identity with its server-side passcode.
+
+    Naming the identity is not enough: the capability still comes from the
+    graph, and the passcode proves the caller may act as that person at all.
+    """
 
     person_id: str = Field(min_length=1, max_length=64)
+    passcode: str = Field(min_length=1, max_length=128)
 
 
 class SessionResponse(BaseModel):

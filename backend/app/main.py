@@ -8,7 +8,7 @@ import anyio
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import get_settings
+from .config import enforce_deployment_safety, get_settings
 from .deps import get_graph_client
 from .graph import GraphClient
 from .models import HealthResponse, ReadinessResponse
@@ -19,7 +19,7 @@ API_VERSION = "0.2.0"
 IMPLEMENTED_SCOPE = [
     "health",
     "readiness",
-    "demo-sessions",
+    "authenticated-demo-sessions",
     "workspace",
     "evidence-correction",
     "deterministic-staging",
@@ -29,6 +29,9 @@ IMPLEMENTED_SCOPE = [
 ]
 
 settings = get_settings()
+
+# A deployment carrying development defaults must not serve traffic at all.
+enforce_deployment_safety(settings)
 
 app = FastAPI(
     title="ResultRipple API",
