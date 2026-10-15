@@ -125,13 +125,20 @@ def issue_session(response: Response, settings: Settings, actor: Actor) -> None:
         max_age=settings.session_max_age_seconds,
         httponly=True,
         samesite="lax",
-        secure=False,  # local HTTP demo; a deployment behind TLS sets this true.
+        # Local development is plain HTTP; a deployment is TLS-only.
+        secure=settings.cookie_secure,
         path="/",
     )
 
 
 def clear_session(response: Response, settings: Settings) -> None:
-    response.delete_cookie(settings.session_cookie, path="/")
+    response.delete_cookie(
+        settings.session_cookie,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=settings.cookie_secure,
+    )
 
 
 def resolve_actor(

@@ -201,6 +201,7 @@ def test_a_properly_configured_deployment_starts() -> None:
             app_env="production",
             session_secret="s" * 48,
             demo_passcodes="person-ari=a,person-noor=b",
+            public_origin="https://rr.example.test",
         )
     )
 
