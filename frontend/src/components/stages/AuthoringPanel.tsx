@@ -28,7 +28,8 @@ export default function AuthoringPanel({ context }: { context: StageContext }) {
   const finding = findings.find((entry) =>
     comparison ? entry.comparison_ids.includes(comparison.comparison_id) : false,
   );
-  const isAnalyst = actor?.demo_role === "analyst";
+  // Any session sees the action; the server decides who may take it.
+  const signedIn = actor !== null;
   const decision = workspace.decision;
   const decisionDocument = workspace.scope.find((doc) => doc.has_decision_block);
   const placement = (documentId: string) =>
@@ -99,12 +100,12 @@ export default function AuthoringPanel({ context }: { context: StageContext }) {
             <div className="rr-list__sub">
               Registered finding · {finding.title} · approved by {nameOf(finding.approved_by)}
             </div>
-          ) : isAnalyst && !choosing ? (
+          ) : signedIn && !choosing ? (
             <button type="button" className="rr-primary" onClick={() => setChoosing(true)}>
               <span>Use this finding</span>
               <span>→</span>
             </button>
-          ) : isAnalyst ? (
+          ) : signedIn ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <label className={`rr-ack${confirmed("binding") ? " rr-ack--checked" : ""}`}>
                 <input
@@ -154,7 +155,7 @@ export default function AuthoringPanel({ context }: { context: StageContext }) {
                 </div>
                 {placed ? (
                   <span className="rr-list__state rr-state--ok">linked · {placed.card_style}</span>
-                ) : finding && isAnalyst && doc.approved_card_style ? (
+                ) : finding && signedIn && doc.approved_card_style ? (
                   <button
                     type="button"
                     className="rr-secondary"
@@ -203,7 +204,7 @@ export default function AuthoringPanel({ context }: { context: StageContext }) {
           !basisRecorded &&
           decisionDocument &&
           placement(decisionDocument.document_id) &&
-          isAnalyst && (
+          signedIn && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
               <label className={`rr-ack${confirmed("basis") ? " rr-ack--checked" : ""}`}>
                 <input type="checkbox" checked={confirmed("basis")} onChange={() => toggle("basis")} />
@@ -249,7 +250,8 @@ function InitialPublication({
   const kase = initialPublicationCase(workspace);
   if (!kase) return null;
   const plan: PlanSummary | null = latestPlanSummary(kase);
-  const isAnalyst = actor?.demo_role === "analyst";
+  // Any session sees the action; the server decides who may take it.
+  const signedIn = actor !== null;
 
   return (
     <section className="rr-card" aria-label="Initial publication">
@@ -260,7 +262,7 @@ function InitialPublication({
       </p>
 
       {!plan &&
-        (isAnalyst ? (
+        (signedIn ? (
           <button
             type="button"
             className="rr-primary"

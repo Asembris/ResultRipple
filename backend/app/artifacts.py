@@ -151,6 +151,18 @@ class ArtifactStore:
         for directory in (self.candidates, self.releases, self.staging):
             directory.mkdir(parents=True, exist_ok=True)
 
+    def clear(self) -> None:
+        """Remove every staged candidate and issued edition.
+
+        Only the operator reset calls this, after the graph that recorded them
+        has been cleared, so no recorded release path is left dangling.
+        """
+        for directory in (self.candidates, self.releases, self.staging):
+            if directory.exists():
+                shutil.rmtree(directory)
+            directory.mkdir(parents=True)
+        _fsync_dir(self.root)
+
     # Candidates are private drafts. They may be overwritten by a restage.
     def write_candidates(self, plan_id: str, package: RenderedPackage) -> dict[str, str]:
         target = self.candidates / _safe_segment(plan_id)

@@ -25,7 +25,7 @@ from app.config import get_settings
 from app.deps import get_artifact_store, get_dataset_path, get_job_store
 from app.service import Actor
 from app.verify_artifacts import verify_package
-from scripts import seed_demo
+from app import seed as seed_demo
 
 pytestmark = pytest.mark.skipif(
     not get_settings().model_configured,

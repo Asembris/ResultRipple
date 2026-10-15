@@ -17,6 +17,7 @@ type Load =
   | { kind: "loading" }
   | { kind: "ready"; workspace: Workspace }
   | { kind: "blocked"; code: string; detail: string }
+  | { kind: "graph-unavailable"; readiness: ReadinessResponse }
   | { kind: "unreachable"; message: string };
 
 export default function App() {
@@ -25,20 +26,32 @@ export default function App() {
   const [readiness, setReadiness] = useState<ReadinessResponse | null>(null);
 
   const load = useCallback(async () => {
+    // Readiness is asked in parallel so a failure can be named honestly: the
+    // API not answering at all is a different outage from FalkorDB being down.
+    const ready = fetchReadiness().then(
+      (value) => ({ value, unreachable: false }),
+      (error: unknown) => ({ value: null, unreachable: error instanceof ApiUnreachableError }),
+    );
     try {
       const [workspace, session] = await Promise.all([fetchWorkspace(), fetchSession()]);
       setActor(session.actor);
       setState({ kind: "ready", workspace });
     } catch (error) {
-      if (error instanceof ApiRefusal) {
+      const probe = await ready;
+      if (error instanceof ApiUnreachableError || probe.unreachable) {
+        setState({
+          kind: "unreachable",
+          message: error instanceof Error ? error.message : "API unreachable",
+        });
+      } else if (probe.value && !probe.value.falkordb.connected) {
+        setState({ kind: "graph-unavailable", readiness: probe.value });
+      } else if (error instanceof ApiRefusal) {
         setState({ kind: "blocked", code: error.code, detail: error.detail });
-      } else if (error instanceof ApiUnreachableError) {
-        setState({ kind: "unreachable", message: error.message });
       } else {
         setState({ kind: "unreachable", message: "Unexpected API failure" });
       }
     }
-    fetchReadiness().then(setReadiness).catch(() => setReadiness(null));
+    setReadiness((await ready).value);
   }, []);
 
   useEffect(() => {
@@ -85,9 +98,33 @@ export default function App() {
 
           {state.kind === "unreachable" && (
             <>
-              <h2>Backend unreachable</h2>
-              <p>{state.message}</p>
-              <p className="rr-mono">Start the API with: uvicorn app.main:app --reload</p>
+              <h2>API unreachable</h2>
+              <p>
+                The ResultRipple API did not answer. Nothing about the workspace can be read until
+                it does, and nothing is shown in its place.
+              </p>
+              <div className="rr-status__code">{state.message}</div>
+              {import.meta.env.DEV && (
+                <p className="rr-mono">Start the API with: uvicorn app.main:app --reload</p>
+              )}
+              <button type="button" className="rr-primary" onClick={() => void load()}>
+                <span>Re-check</span>
+                <span>→</span>
+              </button>
+            </>
+          )}
+
+          {state.kind === "graph-unavailable" && (
+            <>
+              <h2>FalkorDB unavailable</h2>
+              <div className="rr-status__code">
+                {state.readiness.falkordb.error_code ?? "GRAPH_UNAVAILABLE"}
+              </div>
+              <p>
+                The API is up, but the graph that holds the workspace is not answering. Impact,
+                review and release answers always query FalkorDB, so new answers stop until it
+                returns. Editions already issued remain readable at their links.
+              </p>
               <button type="button" className="rr-primary" onClick={() => void load()}>
                 <span>Re-check</span>
                 <span>→</span>

@@ -32,6 +32,7 @@ MUTATIONS = [
     ("POST", "/demo/reviewer-assignment",
      {"from_person_id": domain.PERSON_NOOR, "to_person_id": domain.PERSON_SAM,
       "expected_context_revision": 1}),
+    ("POST", "/demo/reset", {"mode": "demo_setup"}),
 ]
 
 
@@ -201,6 +202,7 @@ def test_a_properly_configured_deployment_starts() -> None:
             app_env="production",
             session_secret="s" * 48,
             demo_passcodes="person-ari=a,person-noor=b",
+            public_origin="https://rr.example.test",
         )
     )
 

@@ -1,0 +1,82 @@
+name: resultripple-prod
+
+# Production stack: FalkorDB, the API and Caddy, nothing else.
+#
+#   docker compose --env-file /opt/resultripple/.env -f compose.prod.yaml up -d --build
+#
+# The env file (chmod 600, never committed) supplies SITE_HOST for interpolation
+# and SESSION_SECRET, DEMO_PASSCODES and NVIDIA_API_KEY to the API only.
+#
+# FalkorDB sits on an internal network with no published port: only the API can
+# reach it. AOF is fsynced on every write onto a named volume. The image's run.sh
+# appends REDIS_ARGS before --dir and --loadmodule, so persistence flags belong
+# there rather than in an overridden command.
+services:
+  falkordb:
+    image: falkordb/falkordb:6.0.2
+    restart: unless-stopped
+    environment:
+      REDIS_ARGS: "--appendonly yes --appendfsync always --appendfilename resultripple.aof --save 60 1"
+      BROWSER: "0"
+    volumes:
+      - falkordb-data:/var/lib/falkordb/data
+    networks:
+      - graph
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    image: resultripple-api:prod
+    restart: unless-stopped
+    env_file:
+      - ${RR_ENV_FILE:-/opt/resultripple/.env}
+    environment:
+      APP_ENV: production
+      PUBLIC_ORIGIN: https://${SITE_HOST:?SITE_HOST must name the public host}
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: "6379"
+      FALKORDB_GRAPH: resultripple
+      ARTIFACT_ROOT: /data/runtime/artifacts
+    volumes:
+      - api-runtime:/data/runtime
+    networks:
+      - graph
+      - edge
+    depends_on:
+      falkordb:
+        condition: service_healthy
+
+  caddy:
+    build: ./frontend
+    image: resultripple-web:prod
+    restart: unless-stopped
+    environment:
+      SITE_HOST: ${SITE_HOST:?SITE_HOST must name the public host}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - edge
+    depends_on:
+      api:
+        condition: service_healthy
+
+networks:
+  # No route out and no published port: the graph is reachable from the API only.
+  graph:
+    internal: true
+  edge: {}
+
+volumes:
+  falkordb-data:
+  api-runtime:
+  caddy-data:
+  caddy-config:

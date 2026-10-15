@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # Browser origins allowed to call the API during local development.
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
 
+    # The deployed site's own origin, such as https://203-0-113-7.sslip.io. A
+    # deployment must set it: every state-changing request has to come from
+    # exactly this origin, and nothing else is trusted.
+    public_origin: str = ""
+
     # Immutable dataset bytes. The graph stores its SHA-256; the engine and the
     # independent verifier both read this file rather than trusting the graph.
     dataset_csv_path: Path = BACKEND_ROOT / "data" / "batches.csv"
@@ -99,6 +104,23 @@ class Settings(BaseSettings):
         return self.app_env.strip().lower() in LOCAL_ENVIRONMENTS
 
     @property
+    def cookie_secure(self) -> bool:
+        """A deployment is served over TLS only, so its cookie never travels in clear."""
+        return not self.is_local
+
+    @property
+    def allowed_origins(self) -> frozenset[str]:
+        """Origins whose browsers may change state.
+
+        Locally the dev-server origins plus any configured public origin; in a
+        deployment the public origin alone.
+        """
+        public = {self.public_origin.strip().rstrip("/")} - {""}
+        if self.is_local:
+            return frozenset(self.cors_origins) | public
+        return frozenset(public)
+
+    @property
     def model_configured(self) -> bool:
         return bool(self.nvidia_api_key.strip() and self.nvidia_model.strip())
 
@@ -116,7 +138,8 @@ def enforce_deployment_safety(settings: Settings) -> None:
     """Refuse to serve a deployment that would sign or gate sessions insecurely.
 
     Development and test keep working with generated local credentials; any
-    other `APP_ENV` must supply both a real session secret and real passcodes.
+    other `APP_ENV` must supply a real session secret, real passcodes, and the
+    https origin it is served from. No configured value is echoed back.
     """
     if settings.is_local:
         return
@@ -127,6 +150,8 @@ def enforce_deployment_safety(settings: Settings) -> None:
         problems.append("SESSION_SECRET must be at least 32 characters")
     if not settings.demo_passcodes.strip():
         problems.append("DEMO_PASSCODES must provision a credential for each demo identity")
+    if not settings.public_origin.strip().startswith("https://"):
+        problems.append("PUBLIC_ORIGIN must be the site's own https:// origin")
     if problems:
         raise InsecureDeployment(
             f"refusing to start with APP_ENV={settings.app_env!r}: " + "; ".join(problems)

@@ -15,6 +15,7 @@ from .config import enforce_deployment_safety, get_settings
 from .deps import get_graph_client
 from .graph import GraphClient, GraphUnavailable
 from .models import AgentStatus, HealthResponse, ReadinessResponse
+from .origin import same_origin_guard
 from .routes import refusal_handler, router
 
 API_VERSION = "0.3.0"
@@ -65,11 +66,14 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(settings.cors_origins),
+    allow_origins=sorted(settings.allowed_origins),
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["content-type"],
 )
+
+# Registered after CORS, so it runs first: a foreign origin never reaches a route.
+app.middleware("http")(same_origin_guard)
 
 app.add_exception_handler(HTTPException, refusal_handler)  # type: ignore[arg-type]
 app.include_router(router)

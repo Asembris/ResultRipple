@@ -160,6 +160,12 @@ class ReviewerAssignmentRequest(BaseModel):
     expected_context_revision: int
 
 
+class ResetRequest(BaseModel):
+    """Operator reset of the demo workspace through the ordinary seed functions."""
+
+    mode: Literal["demo_setup", "authoring_start"]
+
+
 class ErrorBody(BaseModel):
     code: str
     detail: str

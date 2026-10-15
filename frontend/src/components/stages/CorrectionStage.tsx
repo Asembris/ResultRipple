@@ -23,7 +23,8 @@ export default function CorrectionStage({ context }: { context: StageContext }) 
         ? workspace.comparison.right.lane_name
         : laneId.replace(/^lane-/, "").replace(/^./, (c) => c.toUpperCase());
 
-  const isAnalyst = actor?.demo_role === "analyst";
+  // Any session sees the action; the server decides who may take it.
+  const signedIn = actor !== null;
 
   if (pending) {
     return (
@@ -64,7 +65,7 @@ export default function CorrectionStage({ context }: { context: StageContext }) 
           comparison.
         </p>
 
-        {isAnalyst ? (
+        {signedIn ? (
           <button
             type="button"
             className="rr-primary"

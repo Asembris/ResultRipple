@@ -1,6 +1,6 @@
 name: CI
 
-# Four independent jobs run in parallel on every pull request into main, on
+# Five independent jobs run in parallel on every pull request into main, on
 # every push to main, and on demand. A superseded pull-request run is cancelled;
 # a run for a commit on main always finishes. Nothing here is allowed to pass by
 # being skipped: the backend suite needs a real FalkorDB, and the browser suite
@@ -13,6 +13,9 @@ name: CI
 #
 # The authoring browser suite runs in its own job, with its own FalkorDB, against
 # a fresh authoring-start workspace. It involves no agent at all.
+#
+# The images job builds both production images and validates the production
+# Compose file and Caddyfile, so a deployment never discovers a broken build.
 
 on:
   push:
@@ -94,6 +97,35 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+
+  images:
+    name: images (docker build, compose and caddy config)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # No secret exists here: the example env file stands in for the server's.
+      - name: Validate the production Compose file
+        run: SITE_HOST=ci.example.test RR_ENV_FILE=.env.example docker compose -f compose.prod.yaml config --quiet
+
+      - name: Build the API image
+        run: docker build -t resultripple-api:ci backend
+
+      - name: Build the web image
+        run: docker build -t resultripple-web:ci frontend
+
+      - name: Validate the Caddyfile inside the web image
+        run: docker run --rm -e SITE_HOST=ci.example.test resultripple-web:ci caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Refuse to start the API image without production secrets
+        run: |
+          if docker run --rm -e APP_ENV=production resultripple-api:ci python -c "import app.main" 2> refusal.log; then
+            echo "the production image started without its secrets"
+            exit 1
+          fi
+          grep -q "refusing to start with APP_ENV='production'" refusal.log
+          echo "refused as expected"
 
   e2e:
     name: e2e (playwright, real API and graph)

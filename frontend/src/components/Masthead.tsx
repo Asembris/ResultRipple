@@ -101,7 +101,12 @@ export default function Masthead({
         </nav>
 
         <nav className="rr-personas" aria-label="Demo identities">
-          <span className="rr-personas__label">Acting as</span>
+          {!actor && (
+            <span className="rr-personas__label" role="status">
+              Read-only view ·
+            </span>
+          )}
+          <span className="rr-personas__label">{actor ? "Acting as" : "sign in as"}</span>
           {workspace.people.map((person) => {
             const active = person.person_id === actor?.person_id;
             return (

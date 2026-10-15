@@ -784,6 +784,17 @@ class GraphClient:
             {"case_id": case_id},
         )
 
+    def unfinished_agent_jobs(self, *, terminal_states: list[str]) -> list[dict[str, Any]]:
+        return self.run(
+            """
+            MATCH (j:AgentJob)
+            WHERE NOT j.status IN $terminal_states
+            RETURN j.id AS job_id, j.status AS status
+            ORDER BY job_id
+            """,
+            {"terminal_states": sorted(terminal_states)},
+        )
+
     def interrupt_unfinished_agent_jobs(self, *, terminal_states: list[str], at: str) -> int:
         """Mark every job left mid-flight by a restart as interrupted.
 
@@ -1223,5 +1234,7 @@ class GraphClient:
 
 
 # One API process, one in-memory mutation lock. Scaling to several workers would
-# need real coordination; do not enable it silently.
-WORKSPACE_LOCK = threading.Lock()
+# need real coordination; do not enable it silently. It is re-entrant so the
+# operator reset can hold it across the whole reseed while Version 1 is issued
+# through the same locked staging, approval and release path as any other.
+WORKSPACE_LOCK = threading.RLock()
