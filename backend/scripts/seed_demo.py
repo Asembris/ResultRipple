@@ -10,6 +10,11 @@ labelled demo setup.
 
 Usage:
     python -m scripts.seed_demo [--reset]
+    FALKORDB_GRAPH=<empty graph> python -m scripts.seed_demo --fresh
+
+`--fresh` writes an authoring-start workspace instead: the same primitive facts
+with no claim, occurrence or decision basis, and no edition yet. It refuses any
+graph that already holds nodes, so it can never clear a workspace in use.
 """
 
 from __future__ import annotations
@@ -105,6 +110,11 @@ CORRECTION_REQUEST = (
 
 SETUP_CASE_ID = "case-initial-publication"
 
+# The authoring-start workspace's first edition is not demo setup: it is staged,
+# approved and issued through the product once the analyst has authored.
+INITIAL_PUBLICATION_CASE_ID = "case-initial-publication"
+INITIAL_PUBLICATION_REF = "INITIAL-PUBLICATION"
+
 
 def reset(graph: GraphClient) -> None:
     graph.run("MATCH (n) DETACH DELETE n")
@@ -114,8 +124,8 @@ def _blocks_sha(blocks: list[dict[str, Any]]) -> str:
     return hashlib.sha256(domain.canonical_json(blocks).encode("utf-8")).hexdigest()
 
 
-def seed(graph: GraphClient, csv_path: Path) -> None:
-    """Write the primitive facts. Fixed, parameterized, authored queries only."""
+def _seed_primitives(graph: GraphClient, csv_path: Path, *, label: str) -> None:
+    """Workspace, evidence, lanes, people, team and comparison: no authored links."""
     raw = csv_path.read_bytes()
     dataset_sha = hashlib.sha256(raw).hexdigest()
     rows = [line.split(",") for line in raw.decode("utf-8").strip().splitlines()[1:]]
@@ -128,7 +138,7 @@ def seed(graph: GraphClient, csv_path: Path) -> None:
     graph.run(
         """
         CREATE (w:Workspace {id:$workspace_id, context_revision:1, demo:true,
-                             label:'Fictional demo workspace'})
+                             label:$label})
         CREATE (ds:Dataset {id:$dataset_id, raw_sha:$raw_sha,
                             expected_batch_count:$batch_count, schema_version:1,
                             title:'Parcel handling cost, 2026 Q3 synthetic batches'})
@@ -136,6 +146,7 @@ def seed(graph: GraphClient, csv_path: Path) -> None:
         """,
         {
             "workspace_id": domain.WORKSPACE_ID,
+            "label": label,
             "dataset_id": domain.DATASET_ID,
             "raw_sha": dataset_sha,
             "batch_count": len(batches),
@@ -180,9 +191,15 @@ def seed(graph: GraphClient, csv_path: Path) -> None:
 
     graph.run(
         """
-        CREATE (:Team {id:$team_id, name:'Operations Review'})
+        MATCH (reviewer:Person {id:$reviewer_id})
+        CREATE (team:Team {id:$team_id, name:'Operations Review'})
+        CREATE (team)-[:REVIEWED_BY {source:'demo-setup', assigned_by:$operator_id}]->(reviewer)
         """,
-        {"team_id": domain.TEAM_ID},
+        {
+            "team_id": domain.TEAM_ID,
+            "reviewer_id": domain.PERSON_NOOR,
+            "operator_id": domain.PERSON_OPERATOR,
+        },
     )
 
     graph.run(
@@ -198,9 +215,6 @@ def seed(graph: GraphClient, csv_path: Path) -> None:
         CREATE (cmp)-[:LEFT_SIDE]->(left)
         CREATE (cmp)-[:RIGHT_SIDE]->(right)
         CREATE (cmp)-[:OWNED_BY]->(owner)
-        CREATE (cl:Claim {id:$claim_id, definition_version:1,
-                          title:'South versus North mean cost per parcel'})
-        CREATE (cl)-[:BASED_ON]->(cmp)
         """,
         {
             "dataset_id": domain.DATASET_ID,
@@ -208,97 +222,76 @@ def seed(graph: GraphClient, csv_path: Path) -> None:
             "right_lane_id": domain.LANE_SOUTH,
             "owner_id": domain.PERSON_ARI,
             "comparison_id": domain.COMPARISON_ID,
-            "claim_id": domain.CLAIM_ID,
         },
     )
 
-    for document_id, title, template, owner_id, blocks, occurrence_id, style, block_id in (
-        (
-            domain.DOC_OPS,
-            "Operations Cost Review",
-            "operations_cost_review",
-            domain.PERSON_ARI,
-            OPS_BLOCKS,
-            domain.OCC_OPS,
-            "DOLLARS",
-            "ops-finding-cost",
-        ),
-        (
-            domain.DOC_MEMO,
-            "South Expansion Memo",
-            "south_expansion_memo",
-            domain.PERSON_SAM,
-            MEMO_BLOCKS,
-            domain.OCC_MEMO,
-            "CENTS",
-            "memo-finding-cost",
-        ),
-    ):
-        graph.run(
-            """
-            MATCH (owner:Person {id:$owner_id})
-            MATCH (cl:Claim {id:$claim_id})
-            CREATE (doc:Document {id:$document_id, title:$title, template:$template,
-                                  source_revision:1, source_sha:$source_sha,
-                                  source_blocks:$source_blocks})
-            CREATE (doc)-[:OWNED_BY]->(owner)
-            CREATE (occ:Occurrence {id:$occurrence_id, card_style:$card_style,
-                                    block_id:$block_id, original_assertion:''})
-            CREATE (occ)-[:IN_DOCUMENT]->(doc)
-            CREATE (occ)-[:OF_CLAIM]->(cl)
-            """,
-            {
-                "owner_id": owner_id,
-                "claim_id": domain.CLAIM_ID,
-                "document_id": document_id,
-                "title": title,
-                "template": template,
-                "source_sha": _blocks_sha(blocks),
-                "source_blocks": domain.canonical_json(blocks),
-                "occurrence_id": occurrence_id,
-                "card_style": style,
-                "block_id": block_id,
-            },
-        )
 
+# document id, title, template, owner, authored blocks, demo occurrence, style, block
+DOCUMENTS = (
+    (
+        domain.DOC_OPS,
+        "Operations Cost Review",
+        "operations_cost_review",
+        domain.PERSON_ARI,
+        OPS_BLOCKS,
+        domain.OCC_OPS,
+        "DOLLARS",
+        "ops-finding-cost",
+    ),
+    (
+        domain.DOC_MEMO,
+        "South Expansion Memo",
+        "south_expansion_memo",
+        domain.PERSON_SAM,
+        MEMO_BLOCKS,
+        domain.OCC_MEMO,
+        "CENTS",
+        "memo-finding-cost",
+    ),
+)
+
+
+def _create_document(
+    graph: GraphClient,
+    *,
+    document_id: str,
+    title: str,
+    template: str,
+    owner_id: str,
+    blocks: list[dict[str, Any]],
+) -> None:
     graph.run(
         """
-        MATCH (cl:Claim {id:$claim_id})
+        MATCH (owner:Person {id:$owner_id})
+        CREATE (doc:Document {id:$document_id, title:$title, template:$template,
+                              source_revision:1, source_sha:$source_sha,
+                              source_blocks:$source_blocks})
+        CREATE (doc)-[:OWNED_BY]->(owner)
+        """,
+        {
+            "owner_id": owner_id,
+            "document_id": document_id,
+            "title": title,
+            "template": template,
+            "source_sha": _blocks_sha(blocks),
+            "source_blocks": domain.canonical_json(blocks),
+        },
+    )
+
+
+def _create_decision(graph: GraphClient) -> None:
+    graph.run(
+        """
         MATCH (team:Team {id:$team_id})
-        MATCH (reviewer:Person {id:$reviewer_id})
         CREATE (decision:Decision {id:$decision_id, status:'PROPOSED',
                                    title:'South lane expansion proposal'})
-        CREATE (decision)-[:BASED_ON]->(cl)
         CREATE (decision)-[:OWNED_BY]->(team)
-        CREATE (team)-[:REVIEWED_BY {source:'demo-setup', assigned_by:$operator_id}]->(reviewer)
         """,
-        {
-            "claim_id": domain.CLAIM_ID,
-            "team_id": domain.TEAM_ID,
-            "reviewer_id": domain.PERSON_NOOR,
-            "decision_id": domain.DECISION_ID,
-            "operator_id": domain.PERSON_OPERATOR,
-        },
+        {"team_id": domain.TEAM_ID, "decision_id": domain.DECISION_ID},
     )
 
-    # The demo-setup case exists so Version 1 is issued by the real pipeline.
-    graph.run(
-        """
-        CREATE (:CorrectionCase {id:$case_id, status:'CORRECTION_APPLIED',
-                                 source_note:'Demo setup: initial publication of the seeded evidence.',
-                                 source_note_sha:$note_sha, source_ref:'DEMO-SETUP',
-                                 from_lane_id:'', to_lane_id:'', demo_setup:true,
-                                 request_text:'Issue the initial editions from the seeded evidence.',
-                                 decision_id:$decision_id, comparison_id:$comparison_id})
-        """,
-        {
-            "case_id": SETUP_CASE_ID,
-            "note_sha": hashlib.sha256(b"demo-setup").hexdigest(),
-            "decision_id": domain.DECISION_ID,
-            "comparison_id": domain.COMPARISON_ID,
-        },
-    )
 
+def _create_dispatch_case(graph: GraphClient) -> None:
     graph.run(
         """
         CREATE (c:CorrectionCase {id:$case_id, status:'CORRECTION_PENDING',
@@ -328,6 +321,133 @@ def seed(graph: GraphClient, csv_path: Path) -> None:
             "changed_batch_ids": ["B09", "B10", "B11"],
         },
     )
+
+
+def seed(graph: GraphClient, csv_path: Path) -> None:
+    """Write the demo-setup workspace. Fixed, parameterized, authored queries only.
+
+    Its claim, both occurrences and the decision basis are demo setup: written
+    here rather than authored through the product.
+    """
+    _seed_primitives(graph, csv_path, label="Fictional demo workspace")
+
+    graph.run(
+        """
+        MATCH (cmp:Comparison {id:$comparison_id})
+        CREATE (cl:Claim {id:$claim_id, definition_version:1,
+                          title:'South versus North mean cost per parcel'})
+        CREATE (cl)-[:BASED_ON]->(cmp)
+        """,
+        {"comparison_id": domain.COMPARISON_ID, "claim_id": domain.CLAIM_ID},
+    )
+
+    for document_id, title, template, owner_id, blocks, occurrence_id, style, block_id in (
+        DOCUMENTS
+    ):
+        _create_document(
+            graph,
+            document_id=document_id,
+            title=title,
+            template=template,
+            owner_id=owner_id,
+            blocks=blocks,
+        )
+        graph.run(
+            """
+            MATCH (doc:Document {id:$document_id})
+            MATCH (cl:Claim {id:$claim_id})
+            CREATE (occ:Occurrence {id:$occurrence_id, card_style:$card_style,
+                                    block_id:$block_id, original_assertion:''})
+            CREATE (occ)-[:IN_DOCUMENT]->(doc)
+            CREATE (occ)-[:OF_CLAIM]->(cl)
+            """,
+            {
+                "document_id": document_id,
+                "claim_id": domain.CLAIM_ID,
+                "occurrence_id": occurrence_id,
+                "card_style": style,
+                "block_id": block_id,
+            },
+        )
+
+    _create_decision(graph)
+    graph.run(
+        """
+        MATCH (decision:Decision {id:$decision_id})
+        MATCH (cl:Claim {id:$claim_id})
+        CREATE (decision)-[:BASED_ON]->(cl)
+        """,
+        {"decision_id": domain.DECISION_ID, "claim_id": domain.CLAIM_ID},
+    )
+
+    # The demo-setup case exists so Version 1 is issued by the real pipeline.
+    graph.run(
+        """
+        CREATE (:CorrectionCase {id:$case_id, status:'CORRECTION_APPLIED',
+                                 source_note:'Demo setup: initial publication of the seeded evidence.',
+                                 source_note_sha:$note_sha, source_ref:'DEMO-SETUP',
+                                 from_lane_id:'', to_lane_id:'', demo_setup:true,
+                                 request_text:'Issue the initial editions from the seeded evidence.',
+                                 decision_id:$decision_id, comparison_id:$comparison_id})
+        """,
+        {
+            "case_id": SETUP_CASE_ID,
+            "note_sha": hashlib.sha256(b"demo-setup").hexdigest(),
+            "decision_id": domain.DECISION_ID,
+            "comparison_id": domain.COMPARISON_ID,
+        },
+    )
+
+    _create_dispatch_case(graph)
+
+
+def seed_fresh(graph: GraphClient, csv_path: Path) -> None:
+    """Write an authoring-start workspace: nothing is registered yet.
+
+    It has the comparison, both documents, the people, the team and the
+    decision, but no claim, no occurrence, no finding block and no decision
+    basis. Those exist only once an analyst authors them through the product.
+    Its first edition is issued later through the real staging, approval and
+    release path, from the initial-publication case written here.
+    """
+    _seed_primitives(graph, csv_path, label="Fictional demo workspace - authoring start")
+
+    for document_id, title, template, owner_id, blocks, *_ in DOCUMENTS:
+        _create_document(
+            graph,
+            document_id=document_id,
+            title=title,
+            template=template,
+            owner_id=owner_id,
+            blocks=[block for block in blocks if block["kind"] != "finding"],
+        )
+
+    _create_decision(graph)
+
+    graph.run(
+        """
+        CREATE (:CorrectionCase {id:$case_id, status:'CORRECTION_APPLIED',
+                                 source_note:'Initial publication of the authored reports.',
+                                 source_note_sha:$note_sha, source_ref:$source_ref,
+                                 from_lane_id:'', to_lane_id:'',
+                                 request_text:'Issue the first editions of the authored reports.',
+                                 decision_id:$decision_id, comparison_id:$comparison_id})
+        """,
+        {
+            "case_id": INITIAL_PUBLICATION_CASE_ID,
+            "source_ref": INITIAL_PUBLICATION_REF,
+            "note_sha": hashlib.sha256(b"initial-publication").hexdigest(),
+            "decision_id": domain.DECISION_ID,
+            "comparison_id": domain.COMPARISON_ID,
+        },
+    )
+
+    _create_dispatch_case(graph)
+
+
+def node_count(graph: GraphClient) -> int:
+    row = graph.run_one("MATCH (n) RETURN count(n) AS nodes")
+    return int(row["nodes"]) if row else 0
 
 
 def issue_version_one(graph: GraphClient, store, csv_path: Path) -> dict[str, Any]:
@@ -371,13 +491,34 @@ def issue_version_one(graph: GraphClient, store, csv_path: Path) -> dict[str, An
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reset", action="store_true", help="delete the graph first")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--reset", action="store_true", help="delete the graph first")
+    modes.add_argument(
+        "--fresh",
+        action="store_true",
+        help="write an authoring-start workspace into an empty graph; never clears one",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
     graph = get_graph_client()
     store = get_artifact_store()
     csv_path = get_dataset_path()
+
+    if args.fresh:
+        # A workspace someone may be using is never cleared to make room.
+        existing_nodes = node_count(graph)
+        if existing_nodes:
+            print(
+                f"graph {graph.graph_name} already holds {existing_nodes} nodes; a fresh "
+                "workspace needs an empty graph. Set FALKORDB_GRAPH to a new name."
+            )
+            return 1
+        seed_fresh(graph, csv_path)
+        print(f"graph:     {graph.graph_name} at {graph.endpoint}")
+        print(f"dataset:   {settings.dataset_csv_path}")
+        print("workspace: authoring start (no finding, occurrences or decision basis)")
+        return 0
 
     existing = graph.run(
         "MATCH (w:Workspace {id:$id}) RETURN w.id AS id", {"id": domain.WORKSPACE_ID}
