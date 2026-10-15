@@ -178,6 +178,7 @@ Copy `.env.example` to `.env`; it contains no secrets.
 | `APP_ENV` | `development` | `development` or `test` allow generated local credentials; anything else is a deployment |
 | `SESSION_SECRET` | development placeholder | Signs the demo session cookie. A deployment must set a real value of at least 32 characters |
 | `DEMO_PASSCODES` | unset | `person-id=passcode` pairs gating sign-in. Generated and logged locally; required in a deployment |
+| `PUBLIC_ORIGIN` | unset | The deployed site's own `https://` origin. Required in a deployment; the only origin allowed to change state there |
 | `VITE_API_BASE_URL` | `/api` | API base used by the frontend (same-origin by default) |
 | `NVIDIA_API_KEY` | unset | The agent's credential. Environment only; never logged, returned, or written into an artifact |
 | `NVIDIA_API_BASE_URL` | `https://integrate.api.nvidia.com/v1` | OpenAI-compatible endpoint |
@@ -216,14 +217,20 @@ If port 8000 is already taken, start Uvicorn elsewhere and point the dev proxy a
 | `GET /editions/{release_id}/{document_id}` | Serves only an allowlisted path recorded in a committed release. |
 | `GET /releases/{id}/receipt` | Run receipt: hashes, approval, authority at issue, verification result. |
 | `POST /demo/reviewer-assignment` | Guarded synthetic rota change. Demo-operator capability only; no model or analyst path. |
+| `POST /demo/reset` | Demo-operator only. `{"mode": "demo_setup"}` or `{"mode": "authoring_start"}`. Refuses while another workspace write (issuing editions included) holds the lock or any agent run is unfinished; otherwise clears the graph, then the artifact volume, reseeds through the same seed functions as the CLI, issues a real Version 1 for `demo_setup`, and returns a receipt with the release and edition hashes it reads back. |
 
 Refusals carry a stable code — `CORRECTION_SCOPE_MISMATCH`, `MISSING_PROVENANCE`,
 `DUPLICATE_PROVENANCE`, `NO_REVIEWER`, `AMBIGUOUS_REVIEWER`, `NOT_AUTHORIZED`,
 `ALTERNATIVE_NOT_ACKNOWLEDGED`, `STALE_PLAN`, `AUTHORITY_CHANGED`, `CANDIDATE_MISMATCH`,
 `VERIFICATION_FAILED`, `MODEL_NOT_CONFIGURED`, `AGENT_RUN_IN_FLIGHT`, `AGENT_BUSY`,
 `STALE_REVISION`, `BINDING_NOT_CONFIRMED`, `BASIS_NOT_CONFIRMED`, `CARD_STYLE_NOT_ALLOWED`,
-`BASIS_REQUIRES_LINKED_FINDING`, `BASIS_ALREADY_RECORDED` — plus
-the witness the UI needs to explain them.
+`BASIS_REQUIRES_LINKED_FINDING`, `BASIS_ALREADY_RECORDED`, `ORIGIN_REFUSED`,
+`ORIGIN_REQUIRED`, `WORKSPACE_BUSY` — plus the witness the UI needs to explain them.
+
+Every state-changing request must name its origin (`Origin`, or `Referer` as a fallback)
+and that origin must be the site's own. In a deployment a request naming neither is
+refused; locally a request with neither is a test client or script and is let through,
+but a named foreign origin never is.
 
 ## Graph model and queries
 
@@ -362,12 +369,53 @@ The complete manual vertical slice works end to end against real FalkorDB:
   jobs, honest failure states, and an unfinished run marked interrupted after a restart.
 
 Not implemented yet: the reviewer-reassignment and review-refresh *interface* (the API, its guards and its tests
-already exist, because the release guard depends on them), the final production UI, and
-deployment. Those arrive on later feature branches.
+already exist, because the release guard depends on them) and the final production UI.
+Those arrive on later feature branches. Deployment is described below.
 
 The manual staging path remains as an explicitly labelled fallback for when inference is
 unavailable. It runs the same deterministic staging with a human-chosen typed frame, and
 is not an agent demonstration.
+
+## Deployment
+
+One host runs [compose.prod.yaml](compose.prod.yaml): FalkorDB, the API and Caddy, and
+nothing else.
+
+| Service | Exposure | State |
+| --- | --- | --- |
+| `falkordb` (`falkordb/falkordb:6.0.2`) | Internal Docker network only, no published port | Named volume `falkordb-data`, AOF with `appendfsync always` |
+| `api` ([backend/Dockerfile](backend/Dockerfile)) | Private networks only; reached through Caddy | Named volume `api-runtime` for staged candidates and issued editions |
+| `caddy` ([frontend/Dockerfile](frontend/Dockerfile)) | Ports 80 and 443 | Named volumes for certificates and Caddy state |
+
+Caddy serves the built frontend at `/`, proxies `/api/*` to the API with the prefix
+stripped, and obtains the certificate for `SITE_HOST` automatically. The API runs one
+Uvicorn worker with `APP_ENV=production`, which refuses to start without a
+`SESSION_SECRET` of at least 32 characters, `DEMO_PASSCODES`, and an `https://`
+`PUBLIC_ORIGIN`. The session cookie is then `Secure; HttpOnly; SameSite=Lax`.
+
+Server layout:
+
+```
+/opt/resultripple/.env   chmod 600: SITE_HOST, SESSION_SECRET, DEMO_PASSCODES, NVIDIA_API_KEY
+/opt/resultripple/app    a clone of this repository
+```
+
+`SESSION_SECRET` and the passcodes are generated on the server and never printed;
+`NVIDIA_API_KEY` is copied there with `scp`. Nothing secret is in the repository, the
+images or a log. To start or update the stack and seed it the first time:
+
+```bash
+cd /opt/resultripple/app
+docker compose --env-file /opt/resultripple/.env -f compose.prod.yaml up -d --build
+docker compose --env-file /opt/resultripple/.env -f compose.prod.yaml exec api python -m scripts.seed_demo
+```
+
+After that the operator resets the workspace through `POST /api/demo/reset`. Visitors
+without a session get the observer workspace: every read works and every mutation is
+refused by the server, while a signed-in role sees each action and receives the server's
+own refusal when it is not its to take. The frontend tells an unreachable API (a proxy
+`502`/`503` or a network failure) apart from FalkorDB being unavailable (reported by
+`/ready`).
 
 ## Limitations
 
@@ -382,6 +430,11 @@ Demo passcodes are a sandbox gate for a workspace of fictional data, not enterpr
 authentication: there is no account system, password rotation, multi-factor step, or
 sign-in rate limit. They stop an unauthenticated caller from simply claiming to be the
 reviewer; they are not a substitute for real identity management.
+
+There is no rate limiting anywhere: not on sign-in, agent runs, resets or reads. The
+deployment is a single small host for a fictional demo, and a determined caller can
+exhaust its agent budget or its CPU. Passcode guessing is bounded only by the passcodes'
+length.
 
 The commit protocol is a local filesystem protocol plus one guarded graph write, not a
 distributed transaction. Before the pointer commit a crash can leave a private orphan
