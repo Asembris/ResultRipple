@@ -7,6 +7,7 @@ import {
   fetchReadiness,
   fetchSession,
   fetchWorkspace,
+  signOut,
   startSession,
 } from "./api";
 import CorrectionCase from "./components/CorrectionCase";
@@ -52,9 +53,16 @@ export default function App() {
     if (!(error instanceof ApiRefusal)) console.error(error);
   };
 
-  const signIn = async (personId: string) => {
+  const signIn = async (personId: string, passcode: string) => {
     setRefusal(null);
-    setActor(await startSession(personId));
+    setActor(await startSession(personId, passcode));
+    await load();
+  };
+
+  const observe = async () => {
+    setRefusal(null);
+    await signOut();
+    setActor(null);
     await load();
   };
 
@@ -76,6 +84,8 @@ export default function App() {
           actor={actor}
           reviewerId={state.workspace.decision?.current_reviewer_id ?? null}
           onSignIn={signIn}
+          onObserve={observe}
+          onError={onError}
         />
       )}
 
@@ -148,35 +158,96 @@ export default function App() {
   );
 }
 
+/**
+ * Signing in needs the server-side passcode for that identity. The operator
+ * types it; it is never shipped in this bundle or stored in the browser.
+ */
 function RoleBar({
   people,
   actor,
   reviewerId,
   onSignIn,
+  onObserve,
+  onError,
 }: {
   people: Workspace["people"];
   actor: Actor | null;
   reviewerId: string | null;
-  onSignIn: (personId: string) => Promise<void>;
+  onSignIn: (personId: string, passcode: string) => Promise<void>;
+  onObserve: () => Promise<void>;
+  onError: (error: unknown) => void;
 }) {
+  const [pending, setPending] = useState<string | null>(null);
+  const [passcode, setPasscode] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!pending) return;
+    setBusy(true);
+    try {
+      await onSignIn(pending, passcode);
+      setPending(null);
+    } catch (error) {
+      onError(error);
+    } finally {
+      setPasscode("");
+      setBusy(false);
+    }
+  };
+
+  const pendingPerson = people.find((person) => person.person_id === pending);
+
   return (
     <nav className="rolebar" aria-label="Demo identities">
       <span className="label">Signed in as</span>
-      <strong>{actor ? `${actor.display_name} (${actor.demo_role})` : "nobody"}</strong>
+      <strong>
+        {actor ? `${actor.display_name} (${actor.demo_role})` : "an observer (read-only)"}
+      </strong>
       <span className="rolebar__buttons">
         {people.map((person) => (
           <button
             key={person.person_id}
             type="button"
             className={person.person_id === actor?.person_id ? "" : "secondary"}
-            onClick={() => void onSignIn(person.person_id)}
+            onClick={() => {
+              setPasscode("");
+              setPending(person.person_id);
+            }}
           >
             {person.display_name}
             {person.person_id === reviewerId ? " ★" : ""}
           </button>
         ))}
+        {actor && (
+          <button type="button" className="secondary" onClick={() => void onObserve()}>
+            Sign out
+          </button>
+        )}
       </span>
       <span className="meta">&#9733; current review authority, read from the graph</span>
+      {pendingPerson && (
+        <form className="rolebar__signin" onSubmit={submit}>
+          <label htmlFor="demo-passcode">Passcode for {pendingPerson.display_name}</label>
+          <input
+            id="demo-passcode"
+            type="password"
+            autoComplete="off"
+            value={passcode}
+            onChange={(event) => setPasscode(event.target.value)}
+            placeholder="server-side demo passcode"
+          />
+          <button type="submit" disabled={busy || passcode.length === 0}>
+            Sign in
+          </button>
+          <button type="button" className="secondary" onClick={() => setPending(null)}>
+            Cancel
+          </button>
+          <span className="meta">
+            Printed in the API log at startup, or set through DEMO_PASSCODES.
+          </span>
+        </form>
+      )}
     </nav>
   );
 }

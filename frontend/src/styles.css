@@ -75,6 +75,31 @@ body {
   font-size: 0.85rem;
 }
 
+.rolebar__signin {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--rule);
+}
+
+.rolebar__signin label {
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+.rolebar__signin input {
+  font: inherit;
+  font-family: system-ui, sans-serif;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  min-width: 16rem;
+}
+
 .rolebar__buttons {
   display: flex;
   gap: 0.4rem;

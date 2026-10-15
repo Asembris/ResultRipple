@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "../src/App";
@@ -6,11 +6,26 @@ import type { Workspace } from "../src/types";
 import { WORKSPACE_CORRECTED, WORKSPACE_V1 } from "./fixtures";
 
 /** Routes each endpoint the app calls; nothing here fakes a product answer. */
-function stubApi(workspace: Workspace | { status: number; body: unknown }) {
+function stubApi(
+  workspace: Workspace | { status: number; body: unknown },
+  calls: { url: string; body: unknown }[] = [],
+) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (url.endsWith("/auth/demo-session")) {
+        return new Response(
+          JSON.stringify({
+            person_id: "person-noor",
+            display_name: "Noor Haddad",
+            demo_role: "reviewer",
+            review_capable: true,
+          }),
+          { status: 200 },
+        );
+      }
       if (url.endsWith("/auth/session")) {
         return new Response(
           JSON.stringify({
@@ -83,6 +98,55 @@ describe("publishing desk", () => {
     expect(stale).toHaveLength(2);
     expect(screen.getAllByText(/\(direction changed\)/)).toHaveLength(2);
     expect(screen.getByText(/South costs more than North by \$0\.40 per parcel/)).toBeDefined();
+  });
+
+  it("asks for a passcode instead of signing in on a click", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    stubApi(WORKSPACE_V1, calls);
+
+    render(<App />);
+
+    const nav = await screen.findByRole("navigation", { name: /demo identities/i });
+    fireEvent.click(within(nav).getByRole("button", { name: /Noor Haddad/ }));
+
+    expect(await screen.findByLabelText(/Passcode for Noor Haddad/)).toBeDefined();
+    expect(calls.some((call) => call.url.includes("/auth/demo-session"))).toBe(false);
+  });
+
+  it("sends the typed passcode with the identity", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    stubApi(WORKSPACE_V1, calls);
+
+    render(<App />);
+
+    const nav = await screen.findByRole("navigation", { name: /demo identities/i });
+    fireEvent.click(within(nav).getByRole("button", { name: /Noor Haddad/ }));
+    fireEvent.change(await screen.findByLabelText(/Passcode for Noor Haddad/), {
+      target: { value: "typed-by-the-operator" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => {
+      const signIn = calls.find((call) => call.url.includes("/auth/demo-session"));
+      expect(signIn?.body).toEqual({
+        person_id: "person-noor",
+        passcode: "typed-by-the-operator",
+      });
+    });
+  });
+
+  it("carries no credential in the bundle", async () => {
+    stubApi(WORKSPACE_V1);
+
+    render(<App />);
+    await screen.findByText(/1 shared finding/);
+
+    // The passcode field starts empty; nothing is prefilled for the operator.
+    const nav = screen.getByRole("navigation", { name: /demo identities/i });
+    fireEvent.click(within(nav).getByRole("button", { name: /Ari Mensah/ }));
+    const field = (await screen.findByLabelText(/Passcode for Ari Mensah/)) as HTMLInputElement;
+    expect(field.value).toBe("");
+    expect(field.type).toBe("password");
   });
 
   it("names the current review authority rather than a document owner", async () => {

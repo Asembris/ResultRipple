@@ -65,11 +65,18 @@ export const fetchWorkspace = () => request<Workspace>("/workspace");
 
 export const fetchSession = () => request<{ actor: Actor | null }>("/auth/session");
 
-export const startSession = (personId: string) =>
+/**
+ * The passcode is typed by the operator and sent straight to the server. It is
+ * never bundled, stored, or read back from the API.
+ */
+export const startSession = (personId: string, passcode: string) =>
   request<Actor>("/auth/demo-session", {
     method: "POST",
-    body: JSON.stringify({ person_id: personId }),
+    body: JSON.stringify({ person_id: personId, passcode }),
   });
+
+export const signOut = () =>
+  request<{ actor: null }>("/auth/sign-out", { method: "POST" });
 
 export const applyCorrection = (caseId: string, batchIds: string[], revision: number) =>
   request<{ applied_edge_count: number; context_revision: number }>(
