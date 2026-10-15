@@ -32,6 +32,7 @@ MUTATIONS = [
     ("POST", "/demo/reviewer-assignment",
      {"from_person_id": domain.PERSON_NOOR, "to_person_id": domain.PERSON_SAM,
       "expected_context_revision": 1}),
+    ("POST", "/demo/reset", {"mode": "demo_setup"}),
 ]
 
 
