@@ -1213,18 +1213,7 @@ def workspace_view(graph: GraphClient, csv_path: Path) -> dict[str, Any]:
                 for b in context.evidence.batches
             ],
         }
-        comparison = {
-            "comparison_id": context.definition.comparison_id,
-            "metric_key": context.definition.metric_key,
-            "min_n": context.definition.min_n,
-            "owner_id": context.definition.owner_id,
-            "owner_name": context.definition.owner_name,
-            "left": context.result.left.as_dict(),
-            "right": context.result.right.as_dict(),
-            "relation": context.result.relation,
-            "magnitude_cents": context.result.magnitude_cents,
-            "hold_reason": context.result.hold_reason,
-        }
+        comparison = _comparison_facts(context.definition, context.evidence, context.result)
         scope = [
             {
                 "document_id": doc.document_id,
@@ -1241,6 +1230,8 @@ def workspace_view(graph: GraphClient, csv_path: Path) -> dict[str, Any]:
                     }
                     for occ in doc.occurrences
                 ],
+                "approved_card_style": domain.TEMPLATE_CARD_STYLES.get(doc.template),
+                "has_decision_block": any(b["kind"] == "decision" for b in doc.blocks),
             }
             for doc in context.scope.documents
         ]
@@ -1283,6 +1274,7 @@ def workspace_view(graph: GraphClient, csv_path: Path) -> dict[str, Any]:
         "scope": scope,
         "assessment": assessment,
         "decision": decision,
+        "findings": finding_inventory(graph),
         "cases": cases,
         "current_release": graph.release(current_release_id) if current_release_id else None,
         "releases": graph.release_history(),
