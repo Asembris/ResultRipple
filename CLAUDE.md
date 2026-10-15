@@ -21,7 +21,7 @@ scope changes are not.
 
 | Part | Choice |
 | --- | --- |
-| Frontend | React 18, TypeScript, Vite, plain CSS, inline SVG for the comparison bars |
+| Frontend | React 18, TypeScript, Vite, plain CSS, self-hosted fonts, Three.js r160 for the evidence graph (with an SVG fallback) |
 | API | Python 3.12, FastAPI, Pydantic, one Uvicorn worker (in-process mutation lock) |
 | Graph | Official `falkordb` Python client against image `falkordb/falkordb:6.0.2` |
 | Model | One NVIDIA-hosted model through the OpenAI-compatible client |
@@ -40,7 +40,9 @@ Responsibility boundaries, which must not blur:
   questions, and the correction-versus-hold choice through typed tools. It never does
   arithmetic, approves provenance, holds review authority, or certifies facts.
 - **The frontend** owns clear interactions and honest state. It never simulates impact
-  answers or makes permission decisions.
+  answers or makes permission decisions. The evidence graph is presentation: every node,
+  edge, label and figure in it is derived from a `/workspace` or `/plans` response, and an
+  animation may only illustrate a change the server has already confirmed.
 
 Forbidden dependencies: LangChain/LangGraph, MCP, PostgreSQL, Qdrant or any vector
 database, GraphRAG SDK, message broker, Celery, multi-agent framework, notification
