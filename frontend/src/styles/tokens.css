@@ -1,0 +1,81 @@
+/* ResultRipple V2 design tokens. Values are exactly those used inline in prototype/ResultRipple.dc.html. */
+:root {
+  /* surfaces */
+  --rr-bg: #0E0C0A;
+  --rr-bg-deep: #080706;
+  --rr-bg-glow: #1B1713;
+  --rr-panel-top: #14120F;
+  --rr-panel-bottom: #110F0D;
+  --rr-card: #1A1714;
+  --rr-hover: #1E1A16;
+  --rr-track: #26221D;
+  --rr-hairline: #2B2620;
+  --rr-hairline-strong: #3A342C;
+  --rr-disabled: #5A5144;
+
+  /* ink */
+  --rr-ink: #EFE8DA;
+  --rr-ink-2: #C4BBAC;
+  --rr-ink-3: #948B7D;
+  --rr-graph-label-sub: #A39A8C;
+  --rr-graph-rel: #8C8476;
+
+  /* semantics (fixed meaning, never decorative) */
+  --rr-amber: #E8B064;        /* current / primary action / review authority */
+  --rr-amber-hover: #F0C27F;
+  --rr-amber-ink: #1A1206;    /* text on amber */
+  --rr-coral: #E3876A;        /* contradicted by current evidence, refused */
+  --rr-sage: #9CCBAE;         /* approved, issued */
+
+  /* paper (report editions) */
+  --rr-paper: #F3EEE4;
+  --rr-paper-hover: #F8F4EC;
+  --rr-paper-ink: #22201C;
+  --rr-paper-ink-2: #4A453E;
+  --rr-paper-ink-3: #6B6459;
+  --rr-paper-rule: #D6CDBD;
+  --rr-paper-border: #C9BFAE;
+  --rr-paper-changed-bg: #F7E6D6;
+  --rr-paper-changed-border: #C97B5C;
+  --rr-paper-struck: #8A3B26;
+  --rr-paper-card-bg: #ECE5D8;
+  --rr-paper-card-border: #D2C8B7;
+
+  /* type */
+  --rr-serif: 'Instrument Serif', Georgia, serif;
+  --rr-sans: 'Hanken Grotesk', system-ui, sans-serif;
+  --rr-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* radii */
+  --rr-radius-xs: 2px;
+  --rr-radius-sm: 3px;
+  --rr-radius-md: 4px;
+
+  /* layout */
+  --rr-header-h: 64px;
+  --rr-panel-w-xl: 560px;   /* viewport >= 1500 */
+  --rr-panel-w-lg: 470px;   /* viewport >= 1180 */
+  /* below 1180: max(340px, 48vw) */
+
+  /* motion */
+  --rr-ease-out: cubic-bezier(.2,.7,.2,1);
+  --rr-chrome-in: .9s;
+}
+
+html, body { margin: 0; height: 100%; background: var(--rr-bg); color: var(--rr-ink); overflow: hidden; -webkit-font-smoothing: antialiased; }
+a { color: var(--rr-amber); text-decoration: none; }
+a:hover { color: #F3CB8C; }
+button { font: inherit; cursor: pointer; }
+button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--rr-amber); outline-offset: 2px; }
+::selection { background: #E8B06455; }
+
+@keyframes rrWord { 0% { opacity: 0; transform: translateY(14px); filter: blur(8px) } 22% { opacity: 1; transform: none; filter: blur(0) } 78% { opacity: 1 } 100% { opacity: 0; transform: translateY(-6px) } }
+@keyframes rrIn { from { opacity: 0; transform: translateY(12px) } to { opacity: 1; transform: none } }
+@keyframes rrFade { from { opacity: 0 } to { opacity: 1 } }
+@keyframes rrBlink { 0%, 100% { opacity: .25 } 50% { opacity: 1 } }
+@keyframes rrStrike { from { transform: scaleX(0) } to { transform: scaleX(1) } }
+@keyframes rrStamp { 0% { opacity: 0; transform: scale(1.25) rotate(-4deg) } 60% { opacity: 1; transform: scale(.97) rotate(-4deg) } 100% { opacity: 1; transform: scale(1) rotate(-4deg) } }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; }
+}
