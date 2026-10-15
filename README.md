@@ -57,6 +57,17 @@ No corrected file, affected-document list, or reviewer answer is seeded.
 .venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
 ```
 
+Signing in as a demo identity needs a server-side passcode. With `DEMO_PASSCODES`
+unset, the API generates throwaway ones for this process and logs them at startup:
+
+```
+DEMO_PASSCODES is unset; generated development passcodes for this process only:
+person-ari=... person-noor=... person-sam=... person-operator=...
+```
+
+Copy them from that log when you sign in. They are never committed, never shipped
+in the frontend bundle, and never returned by any endpoint.
+
 ### 4. Start the frontend
 
 ```bash
@@ -70,7 +81,9 @@ HttpOnly demo session cookie stays first-party.
 
 ## Walking through the case
 
-1. Sign in as **Ari Mensah** (analyst) in the role bar.
+1. Sign in as **Ari Mensah** (analyst) in the role bar, pasting that identity's
+   passcode from the API log. Without a session you are an observer: every read
+   works and every mutation returns 401.
 2. Read the dispatch note `DX-2026-0914` and click **Confirm correction**. Three effective
    memberships move from South to Pilot; the raw CSV and every recorded cost stay
    unchanged. Both published cards are immediately marked out of date — by direction, not
@@ -78,15 +91,16 @@ HttpOnly demo session cookie stays first-party.
 3. Click **Stage the review**. The engine enumerates every registered occurrence itself,
    renders both candidate editions, and assigns the review to whoever the graph currently
    names — not to a document owner.
-4. Sign in as **Noor Haddad**, open both candidate previews, acknowledge the proposed
-   alternative, and click **Approve revision**. Approval binds to one exact plan version
-   and execution fingerprint.
+4. Sign in as **Noor Haddad** with her own passcode, open both candidate previews,
+   acknowledge the proposed alternative, and click **Approve revision**. Approval binds to
+   one exact plan version and execution fingerprint.
 5. Click **Issue editions**. The server re-reads the graph, regenerates the bytes, requires
    exact agreement with the approved hashes, audits them independently, writes the package,
    and moves one current-release pointer.
 
 Try it as the wrong person: Sam owns the memo and holds a review-capable identity, and
-still cannot approve the case.
+still cannot approve the case. Try it with the wrong credential: Ari's passcode does not
+authenticate anyone as Noor.
 
 ## The frozen dataset
 
@@ -123,7 +137,9 @@ Copy `.env.example` to `.env`; it contains no secrets.
 | `API_HOST` / `API_PORT` | `127.0.0.1` / `8000` | Uvicorn bind address |
 | `ARTIFACT_ROOT` | `backend/runtime/artifacts` | Staged candidates and immutable issued editions |
 | `DATASET_CSV_PATH` | `backend/data/batches.csv` | Immutable measurements |
-| `SESSION_SECRET` | development value | Signs the demo session cookie; override in any deployment |
+| `APP_ENV` | `development` | `development` or `test` allow generated local credentials; anything else is a deployment |
+| `SESSION_SECRET` | development placeholder | Signs the demo session cookie. A deployment must set a real value of at least 32 characters |
+| `DEMO_PASSCODES` | unset | `person-id=passcode` pairs gating sign-in. Generated and logged locally; required in a deployment |
 | `VITE_API_BASE_URL` | `/api` | API base used by the frontend (same-origin by default) |
 
 If port 8000 is already taken, start Uvicorn elsewhere and point the dev proxy at it with
@@ -135,7 +151,8 @@ If port 8000 is already taken, start Uvicorn elsewhere and point the dev proxy a
 | --- | --- |
 | `GET /health` | Liveness only. Touches no external dependency. |
 | `GET /ready` | Runs a real parameterized FalkorDB query. `200` when the graph answers, `503` with a typed `error_code` when it does not. |
-| `POST /auth/demo-session` | Signs in a provisioned demo identity. Capability is resolved from the graph, never from a request body. |
+| `POST /auth/demo-session` | Signs in a provisioned demo identity against its server-side passcode. Capability is then resolved from the graph, never from a request body. |
+| `POST /auth/sign-out` | Drops the session and returns to observing, which is read-only. |
 | `GET /workspace` | Current evidence, live comparison, registered scope, per-occurrence freshness, decision and current reviewer, cases and releases. |
 | `GET /comparisons/{id}` | Approved definition plus live counts and the exact result. |
 | `POST /corrections/{case_id}/apply` | Analyst confirms the dispatch source; one guarded mutation moves exactly the recorded batches. |
@@ -174,6 +191,14 @@ essential queries including both guarded mutations.
   intent, and the template version. **Execution identity** adds the candidate hashes, the
   current reviewer, the context revision, the plan version, and the prior release. A
   reviewer change therefore preserves the bytes while invalidating the approval.
+- **Guarded mutations write everything or nothing.** Every existence and cardinality
+  check precedes the first write clause, so a missing document or occurrence prevents a
+  release or plan from being created rather than suppressing its return value. A filter
+  placed after a write is not a rollback.
+- **Issuing a session requires a credential.** Naming an identity is not authenticating
+  as one. Passcodes are held server-side, compared in constant time, and never served to
+  the browser; a deployment that still carries the development session secret or has no
+  passcodes provisioned refuses to start.
 - **An independent verifier** (`backend/app/verify_artifacts.py`) re-reads the immutable
   CSV and the membership snapshot, re-derives the arithmetic, re-states the expected
   sentence from its own copy of the grammar, and parses the actual generated bytes. It
@@ -195,7 +220,10 @@ the immutable CSV hash with exactly three changed memberships, impact discovered
 real traversal, complete occurrence coverage that a caller cannot narrow, missing and
 duplicate provenance, missing and ambiguous review authority, reviewer enforcement,
 unacknowledged alternatives, stale approval, tampered candidates, idempotent release, and
-an authority change that refuses a previously valid approval. The independent verifier is
+an authority change that refuses a previously valid approval. Separate suites prove that a
+refused release or plan leaves the graph byte-identical, and that a session cannot be
+issued by naming an identity, by guessing a passcode, by reusing another identity's
+passcode, or by forging a cookie. The independent verifier is
 exercised against the real issued bytes and must reject a reversed direction, a changed
 magnitude, a contradicted assertion left behind, edited narrative, a wrong decision
 disposition, a missing second report, and bytes that differ from the approved hashes.
@@ -222,9 +250,9 @@ The complete manual vertical slice works end to end against real FalkorDB:
 - Exact aggregation, a finite factual grammar, and whole-card rendering into two
   standalone autoescaped HTML editions.
 - An independent verifier that parses the real generated bytes.
-- Separate **Approve revision** and **Issue editions** actions behind signed, expiring,
-  HttpOnly demo sessions, with release re-reading authoritative context and failing closed
-  on stale approval or changed authority.
+- Separate **Approve revision** and **Issue editions** actions behind passcode-gated,
+  signed, expiring, HttpOnly demo sessions, with release re-reading authoritative context
+  and failing closed on stale approval or changed authority.
 - Immutable editions, a single current-release pointer, idempotent retries, and a run
   receipt; verified to survive a FalkorDB container restart.
 
@@ -246,6 +274,11 @@ still be factually wrong: human approval and template correctness do not establi
 real-world truth. An artifact hash proves which bytes were issued, not that the dispatch
 note was right. Old downloads and external copies stay untouched; the app issues new
 editions and marks its own hosted history.
+
+Demo passcodes are a sandbox gate for a workspace of fictional data, not enterprise
+authentication: there is no account system, password rotation, multi-factor step, or
+sign-in rate limit. They stop an unauthenticated caller from simply claiming to be the
+reviewer; they are not a substitute for real identity management.
 
 The commit protocol is a local filesystem protocol plus one guarded graph write, not a
 distributed transaction. Before the pointer commit a crash can leave a private orphan
