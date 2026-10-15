@@ -638,7 +638,10 @@ class GraphClient:
                    p.content_hash AS content_hash,
                    p.execution_fingerprint AS execution_fingerprint,
                    p.invalidation_reason AS invalidation_reason,
-                   p.approved_by AS approved_by,
+                   p.approved_by AS approved_by, p.goal AS goal,
+                   p.alternative_flag AS alternative_flag,
+                   p.disposition AS disposition, p.note AS note,
+                   p.staged_by AS staged_by,
                    reviewer.id AS assigned_reviewer_id
             ORDER BY version
             """,
