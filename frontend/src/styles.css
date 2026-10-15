@@ -372,6 +372,74 @@ button:disabled {
   border-top-color: var(--down);
 }
 
+/* -- agent run ----------------------------------------------------------- */
+
+.field {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-family: system-ui, sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.composer {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.composer:disabled {
+  color: var(--ink-soft);
+}
+
+/* Real recorded events, in the order the server reported them. */
+.events {
+  margin: 0.8rem 0 0.4rem;
+  padding-left: 1.2rem;
+  font-family: system-ui, sans-serif;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.events li {
+  margin-bottom: 0.25rem;
+}
+
+.events__failed {
+  color: var(--stale);
+}
+
+.events__pending {
+  font-style: italic;
+}
+
+.intent-frame {
+  margin-top: 0.9rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  background: var(--paper);
+}
+
+.intent-frame h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+}
+
+.question {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 1rem;
+}
+
 .footnote {
   margin-top: 3rem;
   padding-top: 1rem;
