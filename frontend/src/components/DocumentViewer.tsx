@@ -2,6 +2,7 @@ import { candidateUrl, editionUrl } from "../api";
 import PaperFrame, { usePaperBytes } from "./PaperFrame";
 import type { StageContext, ViewerTab } from "./stages/context";
 import type { Assessment, DocumentScope, Release } from "../types";
+import { contradicted } from "../workflow";
 
 /**
  * The report viewer.
@@ -121,7 +122,7 @@ function Sheet({
   downloadUrl: string | null;
 }) {
   const bytes = usePaperBytes(url);
-  const changed = !!assessment && (assessment.relation_changed || assessment.magnitude_changed);
+  const changed = contradicted(assessment);
 
   return (
     <article className="rr-paper">

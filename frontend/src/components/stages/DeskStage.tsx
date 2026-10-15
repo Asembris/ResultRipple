@@ -1,4 +1,4 @@
-import { authoringOpen } from "../../workflow";
+import { authoringOpen, contradicted } from "../../workflow";
 import AuthoringPanel from "./AuthoringPanel";
 import type { StageContext } from "./context";
 
@@ -18,9 +18,7 @@ export default function DeskStage({ context }: { context: StageContext }) {
   const published =
     workspace.assessment[0]?.previous?.text ?? workspace.assessment[0]?.current.text ?? null;
   const release = workspace.current_release;
-  const outOfDate = workspace.assessment.filter(
-    (entry) => entry.relation_changed || entry.magnitude_changed,
-  );
+  const outOfDate = workspace.assessment.filter(contradicted);
   const correctionPending = !!kase && kase.status === "CORRECTION_PENDING";
 
   return (
@@ -43,7 +41,7 @@ export default function DeskStage({ context }: { context: StageContext }) {
             const assessment = workspace.assessment.find(
               (entry) => entry.document_id === doc.document_id,
             );
-            const stale = !!assessment && (assessment.relation_changed || assessment.magnitude_changed);
+            const stale = contradicted(assessment);
             const style = doc.occurrences[0]?.card_style;
             return (
               <div className="rr-list__row" key={doc.document_id}>

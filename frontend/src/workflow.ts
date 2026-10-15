@@ -8,7 +8,7 @@
  * API does that.
  */
 import type { Focus } from "./graph/stageFromWorkspace";
-import type { CorrectionCase, Plan, PlanSummary, Workspace } from "./types";
+import type { Assessment, CorrectionCase, Plan, PlanSummary, Workspace } from "./types";
 
 export const CASE_REF = "DX-2026-0914";
 
@@ -46,6 +46,16 @@ export function authoringOpen(ws: Workspace): boolean {
 export function latestPlanSummary(kase: CorrectionCase | null): PlanSummary | null {
   if (!kase || kase.plans.length === 0) return null;
   return kase.plans.reduce((best, plan) => (plan.version > best.version ? plan : best));
+}
+
+/**
+ * A registered use is contradicted only when an edition actually published an
+ * assertion for it and current evidence differs. Before the first edition there
+ * is nothing published to contradict.
+ */
+export function contradicted(entry: Assessment | null | undefined): boolean {
+  if (!entry || entry.previous?.relation === undefined) return false;
+  return entry.relation_changed || entry.magnitude_changed;
 }
 
 /** True once the correction's batches actually sit in the new lane. */

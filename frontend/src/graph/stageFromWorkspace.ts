@@ -10,6 +10,7 @@
  *   fetchPlan(id)    -> Plan        (GET /plans/{plan_id})
  */
 import type { Comparison, Plan, PlanSummary, Workspace } from "../types";
+import { contradicted } from "../workflow";
 
 export type LaneKey = "north" | "south" | "pilot";
 export type ReviewerKey = "noor" | "sam" | "unknown";
@@ -253,7 +254,7 @@ export function stageFromWorkspace(
     changedBatchIds.length > 0 &&
     changedBatchIds.every((id) => batches.find((b) => b.id === id)?.currentLane === toLaneKey);
 
-  const stale = ws.assessment.some((entry) => entry.relation_changed || entry.magnitude_changed);
+  const stale = ws.assessment.some(contradicted);
 
   const reviewerId = ws.decision?.current_reviewer_id ?? null;
   const personSlots = resolveSlots(
