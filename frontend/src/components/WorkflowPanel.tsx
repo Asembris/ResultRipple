@@ -1,10 +1,9 @@
-import AgentRunLegacy from "./AgentRun";
-import CorrectionCaseLegacy from "./CorrectionCase";
 import PublishingDeskLegacy from "./PublishingDesk";
 import RefusalCard from "./RefusalCard";
 import ReviewPaneLegacy from "./ReviewPane";
 import CorrectionStage from "./stages/CorrectionStage";
 import DeskStage from "./stages/DeskStage";
+import InvestigationStage from "./stages/InvestigationStage";
 import type { StageContext } from "./stages/context";
 import { STEP_NAMES } from "../workflow";
 
@@ -31,6 +30,8 @@ export default function WorkflowPanel({ context }: { context: StageContext }) {
         <DeskStage context={context} />
       ) : step === 2 ? (
         <CorrectionStage context={context} />
+      ) : step === 3 ? (
+        <InvestigationStage context={context} />
       ) : (
         <div className="rr-legacy">
           <p className="rr-mono">
@@ -38,19 +39,6 @@ export default function WorkflowPanel({ context }: { context: StageContext }) {
             below are the real ones.
           </p>
           <PublishingDeskLegacy state={workspace} />
-          <CorrectionCaseLegacy
-            state={workspace}
-            actor={context.actor}
-            onChange={() => context.commit(async () => undefined).then(() => undefined)}
-            onError={() => undefined}
-          />
-          <AgentRunLegacy
-            state={workspace}
-            actor={context.actor}
-            agent={context.readiness?.agent ?? null}
-            onChange={() => context.commit(async () => undefined).then(() => undefined)}
-            onError={() => undefined}
-          />
           <ReviewPaneLegacy
             state={workspace}
             actor={context.actor}

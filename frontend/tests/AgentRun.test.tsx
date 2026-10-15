@@ -152,7 +152,7 @@ describe("the agent surface", () => {
     const panel = await agentPanel();
     const configuration = await panel.findAllByText((_, element) =>
       Boolean(
-        element?.className === "meta" &&
+        element?.className === "rr-mono" &&
           (element?.textContent ?? "").includes("nvidia/nemotron-3-super-120b-a12b at https://"),
       ),
     );
@@ -167,7 +167,7 @@ describe("the agent surface", () => {
     render(<App />);
 
     const panel = await agentPanel();
-    const composer = panel.getByLabelText(/your request, in your own words/i);
+    const composer = panel.getByLabelText(/request, in their own words/i);
     fireEvent.change(composer, { target: { value: "Fix the reports please." } });
     fireEvent.click(panel.getByRole("button", { name: /Run agent/ }));
 
@@ -204,12 +204,16 @@ describe("the agent surface", () => {
     render(<App />);
 
     const panel = await agentPanel();
-    expect(await panel.findByText(/What the agent proposes/)).toBeDefined();
+    expect(await panel.findByText("Requested")).toBeDefined();
+    expect(panel.getByText("Evidence")).toBeDefined();
+    expect(panel.getByText("Proposed")).toBeDefined();
     expect(panel.getByText(/keep the cheaper claim/)).toBeDefined();
-    expect(panel.getByText(/South costs 40 cents more per parcel than North/)).toBeDefined();
-    expect(panel.getByText(/correct\s+2 registered uses and return the proposal for review/)).toBeDefined();
+    expect(panel.getByText(/South costs \$0\.40 more per parcel than North/)).toBeDefined();
+    expect(
+      panel.getByText(/Correct 2 registered uses and return the .* for review/),
+    ).toBeDefined();
     // An alternative is a proposal, never recorded consent.
-    expect(panel.getByText(/an alternative is a proposal, not consent/)).toBeDefined();
+    expect(panel.getByText(/ALTERNATIVE . NEEDS ACKNOWLEDGMENT/)).toBeDefined();
     expect(panel.getByText(/unassessed commentary/)).toBeDefined();
   });
 
@@ -220,8 +224,9 @@ describe("the agent surface", () => {
     const panel = await agentPanel();
     expect(await panel.findByText(/Waiting for your answer/)).toBeDefined();
     expect(panel.getByText(AGENT_JOB_WAITING.clarification_question ?? "")).toBeDefined();
-    expect(panel.getByText(/no review is staged and nothing is published/)).toBeDefined();
-    expect(panel.queryByText(/What the agent proposes/)).toBeNull();
+    expect(panel.getByText(/No review is staged and nothing is published/)).toBeDefined();
+    expect(panel.getByText("NOTHING STAGED")).toBeDefined();
+    expect(panel.queryByText("Proposed")).toBeNull();
   });
 
   it("reports a failed run honestly rather than claiming a staged review", async () => {
@@ -240,7 +245,7 @@ describe("the agent surface", () => {
     expect(await panel.findByText(/Timed out/)).toBeDefined();
     expect(panel.getByText(/MODEL_TIMEOUT/)).toBeDefined();
     expect(panel.getByText(/Nothing was staged, approved, or published/)).toBeDefined();
-    expect(panel.queryByText(/What the agent proposes/)).toBeNull();
+    expect(panel.queryByText("Proposed")).toBeNull();
   });
 
   it("offers the labelled manual fallback when no model is configured", async () => {
@@ -252,7 +257,7 @@ describe("the agent surface", () => {
     expect((panel.getByRole("button", { name: /Run agent/ }) as HTMLButtonElement).disabled).toBe(
       true,
     );
-    expect(screen.getByText(/fallback without the agent/)).toBeDefined();
+    expect(screen.getByText(/honest\s+fallback/)).toBeDefined();
     expect(screen.getByRole("button", { name: /Stage manually instead/ })).toBeDefined();
   });
 
@@ -275,9 +280,7 @@ describe("the agent surface", () => {
     render(<App />);
 
     const panel = await agentPanel();
-    expect(await panel.findByText(/Sign in as the analyst to send a request/)).toBeDefined();
-    expect((panel.getByRole("button", { name: /Run agent/ }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect(await panel.findByText(/Sign in as the analyst above to send a request/)).toBeDefined();
+    expect(panel.queryByRole("button", { name: /Run agent/ })).toBeNull();
   });
 });
