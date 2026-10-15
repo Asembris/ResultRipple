@@ -1,9 +1,11 @@
-"""Live FalkorDB probe. Skipped when no graph is running."""
+"""Live FalkorDB probe. Skipped when no graph is running, except in CI."""
 
 import pytest
 
 from app.config import get_settings
 from app.graph import GraphClient
+
+from . import helpers
 
 
 @pytest.fixture(scope="module")
@@ -13,7 +15,9 @@ def probe():
 
 def test_probe_reaches_the_configured_graph(probe) -> None:
     if not probe.connected:
-        pytest.skip(f"FalkorDB unavailable at {probe.endpoint}: {probe.error_detail}")
+        helpers.no_usable_graph(
+            f"FalkorDB unavailable at {probe.endpoint}: {probe.error_detail}"
+        )
 
     assert probe.graph == get_settings().falkordb_graph
     assert probe.latency_ms is not None

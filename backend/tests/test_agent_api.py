@@ -7,7 +7,7 @@ deterministically. The decisive end-to-end evidence with real NVIDIA calls is in
 
 from __future__ import annotations
 
-import time
+import threading
 from typing import Any
 
 import pytest
@@ -24,13 +24,30 @@ ARI = Actor("person-ari", "Ari Mensah", "analyst", False)
 REQUEST = helpers.CORRECTION_REQUEST
 
 
+class RecordedRuns:
+    """What the replaced execution was asked, and when it finished.
+
+    The replacement signals completion itself, so a test waits for the real
+    event rather than for a polling budget to expire.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.finished = threading.Event()
+
+    def await_execution(self, timeout: float = 15.0) -> None:
+        assert self.finished.wait(timeout), (
+            "the background run never executed: the route's task was never run"
+        )
+
+
 @pytest.fixture()
 def recorded_execution(monkeypatch):
     """Replace inference with a recorded terminal outcome, written to the graph."""
-    seen: list[dict[str, Any]] = []
+    runs = RecordedRuns()
 
     def execute(self, graph, store, csv_path, **kwargs):  # noqa: ANN001
-        seen.append(kwargs)
+        runs.calls.append(kwargs)
         graph.update_agent_job(
             job_id=kwargs["job_id"],
             fields={
@@ -45,21 +62,28 @@ def recorded_execution(monkeypatch):
             },
         )
         get_job_store()._release(kwargs["job_id"])
+        # The graph is already terminal at this point, so a test that observes
+        # this event can read the finished job without racing it.
+        runs.finished.set()
         return {"job_id": kwargs["job_id"], "status": "AWAITING_REVIEW"}
 
     monkeypatch.setattr(AgentJobStore, "execute", execute)
-    return seen
+    return runs
 
 
-def _await_terminal(http, job_id: str, *, attempts: int = 60) -> dict[str, Any]:
-    for _ in range(attempts):
-        response = http.get(f"/jobs/{job_id}")
-        assert response.status_code == 200, response.text
-        job = response.json()
-        if job["terminal"]:
-            return job
-        time.sleep(0.05)
-    pytest.fail(f"job {job_id} never reached a terminal state")
+def _completed_job(http, runs: RecordedRuns, job_id: str) -> dict[str, Any]:
+    """Read the job once the recorded run has actually finished it."""
+    runs.await_execution()
+    response = http.get(f"/jobs/{job_id}")
+    assert response.status_code == 200, response.text
+    job = response.json()
+    assert job["terminal"], job
+    return job
+
+
+@pytest.fixture(autouse=True)
+def _model_looks_configured(placeholder_model_credential):
+    """Inference is scripted here, so the run only needs the gate open."""
 
 
 # -- admission ----------------------------------------------------------------
@@ -111,7 +135,7 @@ def test_a_run_is_accepted_persisted_and_then_reported(ari, seeded, recorded_exe
     assert accepted["model"] == get_settings().nvidia_model
     assert accepted["request_text"] == REQUEST
 
-    job = _await_terminal(ari, accepted["job_id"])
+    job = _completed_job(ari, recorded_execution, accepted["job_id"])
     assert job["status"] == "AWAITING_REVIEW"
     assert job["plan_id"] == "plan-recorded"
     assert job["case_id"] == domain.CASE_ID
@@ -119,8 +143,8 @@ def test_a_run_is_accepted_persisted_and_then_reported(ari, seeded, recorded_exe
     assert job["usage"] == {"total_tokens": 7}
     assert job["events"] == [{"kind": "model", "turn": 1}]
     # The run was handed the analyst's own words and nothing else.
-    assert recorded_execution[0]["request_text"] == REQUEST
-    assert recorded_execution[0]["actor"].person_id == domain.PERSON_ARI
+    assert recorded_execution.calls[0]["request_text"] == REQUEST
+    assert recorded_execution.calls[0]["actor"].person_id == domain.PERSON_ARI
 
 
 def test_a_second_run_is_refused_while_one_is_in_flight(ari, seeded):
@@ -198,7 +222,7 @@ def test_runs_are_listed_for_the_case_and_shown_in_the_workspace(ari, seeded, re
     accepted = ari.post(
         f"/cases/{domain.CASE_ID}/agent-runs", json={"request_text": REQUEST}
     ).json()
-    _await_terminal(ari, accepted["job_id"])
+    _completed_job(ari, recorded_execution, accepted["job_id"])
 
     listed = ari.get(f"/cases/{domain.CASE_ID}/agent-runs")
     assert listed.status_code == 200

@@ -84,10 +84,24 @@ test("the correction, review and download run on real data", async ({ page }) =>
   await expect(panel(page).getByText("DIRECTION CHANGED").first()).toBeVisible({ timeout: 30_000 });
   await expect(panel(page).getByText("BASIS CONTRADICTED")).toBeVisible();
 
-  // 3. A real agent run stages the review.
+  // 3. The review is staged. The server says whether there is an agent to run:
+  //    with a credential this is a real NVIDIA run, and without one it is the
+  //    product's own labelled manual fallback. Every step after this is the
+  //    same either way, and the run says plainly which path it took.
   await panel(page).getByRole("button", { name: /Ask the agent to prepare the review/ }).click();
   const agent = page.getByRole("region", { name: /Ask the agent/i });
-  await agent.getByRole("button", { name: /Run agent/ }).click();
+  const ready = await page.request.get("/api/ready");
+  expect(ready.ok(), `GET /ready returned ${ready.status()}`).toBeTruthy();
+  const readiness = (await ready.json()) as { agent?: { configured?: boolean } };
+  if (readiness.agent?.configured === true) {
+    await agent.getByRole("button", { name: /Run agent/ }).click();
+  } else {
+    console.log(
+      "/ready reports agent.configured=false, so the review is staged through the " +
+        "UI's manual fallback. Real NVIDIA inference was NOT exercised by this run.",
+    );
+    await agent.getByRole("button", { name: /Stage manually instead/ }).click();
+  }
   const labels = agent.locator(".rr-trip__label");
   await expect(labels).toHaveCount(3, { timeout: 60_000 });
   await expect(labels).toHaveText(["Requested", "Evidence", "Proposed"]);

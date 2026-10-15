@@ -2,11 +2,33 @@
 
 from __future__ import annotations
 
-from typing import Any
+import os
+from typing import Any, NoReturn
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app import domain
+
+# GitHub Actions sets CI=true.
+CI_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+def running_in_ci() -> bool:
+    return os.environ.get("CI", "").strip().lower() in CI_VALUES
+
+
+def no_usable_graph(reason: str) -> NoReturn:
+    """Skip locally, fail in CI.
+
+    Almost every test here is an integration test against a real FalkorDB, so a
+    run without one proves nothing. Locally that is worth skipping past. In CI
+    it is the whole point of the job, and a suite that skipped its way to "10
+    passed, 145 skipped" would report green for a build that tested nothing.
+    """
+    if running_in_ci():
+        pytest.fail(f"{reason} (CI=true, so this is a failure, not a skip)", pytrace=False)
+    pytest.skip(reason)
 
 CORRECTION_REQUEST = (
     "Update the reports, but keep South as the cheaper option in the rollout memo."
