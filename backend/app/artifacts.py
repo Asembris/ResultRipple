@@ -24,6 +24,7 @@ from . import domain
 from .engine import (
     CaseContext,
     EngineHold,
+    assert_publishable,
     format_cents,
     format_dollars,
     typed_assertion,
@@ -74,6 +75,7 @@ def render_package(
     """Render every registered document from the current authoritative context."""
     if disposition not in domain.DISPOSITION_DECISION_STATUS:
         raise EngineHold("DISPOSITION_NOT_RENDERABLE", f"disposition {disposition}")
+    assert_publishable(context)
 
     result = context.result
     decision_status = domain.DISPOSITION_DECISION_STATUS[disposition]

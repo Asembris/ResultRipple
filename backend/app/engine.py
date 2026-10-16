@@ -647,6 +647,38 @@ def load_case_context(
     )
 
 
+def assert_publishable(context: CaseContext) -> None:
+    """Every rendered statement must agree with the provenance the graph records.
+
+    Each card is rendered from the one comparison in context, so every
+    registered occurrence must be bound to that comparison. A decision block
+    states its basis, so the basis must exist and be a claim placed in a
+    document that carries the decision block. Called before any bytes are
+    rendered, so stage, refresh and release all hold the same way.
+    """
+    for occ in context.scope.occurrences:
+        if occ.comparison_id != context.definition.comparison_id:
+            raise EngineHold(
+                "MISBOUND_PROVENANCE",
+                f"{occ.occurrence_id} is bound to {occ.comparison_id}, "
+                f"not {context.definition.comparison_id}",
+            )
+    holders = [
+        doc for doc in context.scope.documents if any(b["kind"] == "decision" for b in doc.blocks)
+    ]
+    if holders:
+        basis = context.authority.basis_claim_id
+        if basis is None:
+            raise EngineHold(
+                "MISSING_DECISION_BASIS", "the decision block has no recorded basis"
+            )
+        if basis not in {occ.claim_id for doc in holders for occ in doc.occurrences}:
+            raise EngineHold(
+                "MISBOUND_PROVENANCE",
+                f"decision basis {basis} is not placed beside the decision block",
+            )
+
+
 # -- identity: content versus permission --------------------------------------
 
 
