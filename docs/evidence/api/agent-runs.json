@@ -1,0 +1,1 @@
+{"case_id":"case-dispatch-b09-b11","runs":[{"job_id":"job-a8b9ac904903","status":"AWAITING_REVIEW","started_at":"2026-10-16T18:32:16+00:00","finished_at":"2026-10-16T18:32:23+00:00","plan_id":"plan-case-dispatch-b09-b11-v1","error_code":null,"elapsed_ms":6365,"request_text":"Update the reports, but keep South as the cheaper option in the rollout memo."}]}

@@ -1,0 +1,104 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operations Cost Review</title>
+<meta name="rr-edition-id" content="ed-c004be615274">
+<meta name="rr-document-id" content="doc-operations-cost-review">
+<meta name="rr-template-version" content="tpl-1">
+<meta name="rr-dataset-sha" content="9f32c90244987bb5bc6c4fb4dbed63dd8f5ef9a0552f09bba62b3edd7ad2b6aa">
+<meta name="rr-membership-sha" content="929767228468c45303e6e3f906e54e0a9bbcac8d64f4d5b5897f5523dac85192">
+<style>
+:root { --ink:#1b1a17; --paper:#fbfaf7; --rule:#d9d4c7; --accent:#1f5d4c; --muted:#6b6557; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--paper); color:var(--ink);
+       font:16px/1.6 Georgia,"Times New Roman",serif; }
+.report { max-width:46rem; margin:0 auto; padding:3rem 1.5rem 4rem; }
+.org { margin:0; font:600 0.75rem/1.4 system-ui,sans-serif; letter-spacing:0.08em;
+       text-transform:uppercase; color:var(--muted); }
+h1 { margin:0.4rem 0 0.3rem; font-size:2rem; line-height:1.2; }
+.masthead { border-bottom:3px solid var(--accent); padding-bottom:1rem; margin-bottom:2rem; }
+.masthead .meta { margin:0; font:0.8rem/1.5 system-ui,sans-serif; color:var(--muted); }
+h2 { font-size:1.05rem; letter-spacing:0.02em; margin:2rem 0 0.5rem; }
+.block { margin:0 0 1.5rem; }
+.card { border:1px solid var(--rule); border-left:4px solid var(--accent);
+        background:#fff; padding:1.1rem 1.25rem; }
+.card__label { margin:0 0 0.4rem; font:600 0.7rem/1.4 system-ui,sans-serif;
+               letter-spacing:0.1em; text-transform:uppercase; color:var(--accent); }
+.card__assertion { margin:0 0 0.9rem; font-size:1.25rem; font-weight:700; line-height:1.35; }
+.card__evidence { margin:0; display:grid; grid-template-columns:7rem 1fr; gap:0.3rem 1rem;
+                  font:0.82rem/1.5 system-ui,sans-serif; color:var(--muted); }
+.card__evidence dt { font-weight:600; color:var(--ink); }
+.card__evidence dd { margin:0; }
+.card--withheld { border-left-color:#9a6b00; }
+.decision { border:1px solid var(--rule); background:#fff; padding:1.1rem 1.25rem; }
+.decision__status { font:600 1.05rem/1.4 system-ui,sans-serif; }
+.unassessed { margin:0.6rem 0 0; font:0.72rem/1.5 system-ui,sans-serif; color:var(--muted);
+              font-style:italic; }
+footer { margin-top:3rem; padding-top:1rem; border-top:1px solid var(--rule);
+         font:0.75rem/1.6 system-ui,sans-serif; color:var(--muted); }
+footer dl { display:grid; grid-template-columns:10rem 1fr; gap:0.2rem 1rem; margin:0.6rem 0 0; }
+footer dt { font-weight:600; }
+footer dd { margin:0; word-break:break-all; }
+</style>
+</head>
+<body>
+<article class="report">
+  <header class="masthead">
+    <p class="org">ParcelLine Logistics — fictional demo organization</p>
+    <h1>Operations Cost Review</h1>
+    <p class="meta">Recurring operations review &middot; Owner: Ari Mensah &middot; Edition ed-c004be615274</p>
+  </header>
+
+  
+  <section class="block block--narrative" id="ops-intro"
+           data-block-kind="narrative" data-assessed="false">
+    <h2>Scope of this review</h2>
+    <p>This recurring review compares mean handling cost per parcel across the North, South and Pilot lanes for the 2026 Q3 synthetic batch set.</p>
+    <p>All figures are descriptive. Batches carry equal analytical weight and no causal savings estimate is made.</p>
+    <p class="unassessed">Editorial context &mdash; not assessed by ResultRipple.</p>
+  </section>
+  
+  <section class="block block--finding card"
+           id="ops-finding-cost" data-block-kind="finding"
+           data-occurrence-id="occ-ops-cost-finding"
+           data-claim-id="claim-south-vs-north-cost"
+           data-relation="LOWER_COST"
+           data-magnitude-cents="40"
+           data-unit="USD_PER_PARCEL"
+           data-card-style="DOLLARS">
+    <p class="card__label">Linked finding</p>
+    <p class="card__assertion">South costs $0.40 less per parcel than North.</p>
+    <dl class="card__evidence">
+      <dt>North</dt>
+      <dd>mean $4.00 per parcel over 4 batches</dd>
+      <dt>South</dt>
+      <dd>mean $3.60 per parcel over 7 batches</dd>
+      <dt>Evidence</dt>
+      <dd>cmp-north-south-mean-cost &middot; dataset ds-parcel-cost-2026Q3 &middot; minimum 4 batches per side</dd>
+    </dl>
+  </section>
+  
+  <section class="block block--narrative" id="ops-method"
+           data-block-kind="narrative" data-assessed="false">
+    <h2>Method and limitations</h2>
+    <p>Each batch contributes one integer cost in cents per parcel. A lane enters the comparison only with at least four batches, which is a declared demo policy rather than a significance test.</p>
+    <p>Lane membership reflects the current effective assignment recorded in the operations graph, which can differ from the lane originally written on the dispatch record.</p>
+    <p class="unassessed">Editorial context &mdash; not assessed by ResultRipple.</p>
+  </section>
+  
+
+  <footer>
+    <p><strong>Verification scope.</strong> Two registered finding occurrences and one typed decision-status block checked. Editorial narrative not assessed by ResultRipple.</p>
+    <dl>
+      <dt>Raw measurements</dt><dd>SHA-256 9f32c90244987bb5bc6c4fb4dbed63dd8f5ef9a0552f09bba62b3edd7ad2b6aa</dd>
+      <dt>Effective memberships</dt><dd>SHA-256 929767228468c45303e6e3f906e54e0a9bbcac8d64f4d5b5897f5523dac85192</dd>
+      <dt>Edition</dt><dd>ed-c004be615274 (tpl-1)</dd>
+    </dl>
+    <p>All organizational data in this document is fictional demo setup.</p>
+  </footer>
+</article>
+</body>
+</html>
