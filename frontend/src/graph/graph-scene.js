@@ -79,7 +79,7 @@ function nodeDefs(s) {
   return d;
 }
 
-function edgeDefs(s) {
+export function edgeDefs(s) {
   const E = [];
   const f = factsOf(s);
   const leftLane = f ? f.leftLaneKey : 'north';
@@ -157,7 +157,7 @@ function laneSub(key, s) {
   return n + ' batches · not compared';
 }
 
-function nodeText(n, s) {
+export function nodeText(n, s) {
   const L = labelsOf(s);
   const f = factsOf(s);
   const v2 = s.release === 'v2';
@@ -173,7 +173,9 @@ function nodeText(n, s) {
       const sub = f && RELATION_DIR[f.relation]
         ? f.rightLaneName + ' ' + RELATION_DIR[f.relation] + ' by ' + f.magnitudeCents + '¢'
         : f ? 'comparison withheld' : '';
-      return { sub, tag: stale(s) ? ['DIRECTION REVERSED', 'coral'] : null };
+      // Only a changed relation reverses direction; a magnitude-only change does not.
+      const tag = s.reversed ? ['DIRECTION REVERSED', 'coral'] : stale(s) ? ['VALUE CHANGED', 'coral'] : null;
+      return { sub, tag };
     }
     case 'finding': {
       const sub = f && RELATION_WORD[f.relation] && RELATION_DIR[f.relation]
@@ -214,7 +216,7 @@ function nodeText(n, s) {
   }
 }
 
-function edgeTarget(e, s) {
+export function edgeTarget(e, s) {
   const st = stale(s);
   switch (e.kind) {
     case 'assign': {
@@ -227,7 +229,8 @@ function edgeTarget(e, s) {
     case 'flow': return { vis: !e.link || linkOn(s, e.link), tone: e.stale && st ? 'coral' : 'amber', op: 0.62 };
     case 'context': return { vis: true, tone: 'faint', op: 0.3 };
     case 'authority': return { vis: reviewerIs(s, e.who), tone: 'ivory', op: 0.6 };
-    case 'release': return { vis: true, tone: s.release === 'v2' ? 'sage' : 'faint', op: s.release === 'v2' ? 0.6 : 0.3 };
+    // No INCLUDES_DOCUMENT edge is drawn before any release exists.
+    case 'release': return { vis: s.release !== 'none', tone: s.release === 'v2' ? 'sage' : 'faint', op: s.release === 'v2' ? 0.6 : 0.3 };
     case 'covers': return { vis: s.plan !== 'none', tone: /issued/.test(s.plan) ? 'sage' : 'faint', dash: !/issued/.test(s.plan), op: 0.4 };
     case 'planrev': {
       // Which reviewer the plan is actually assigned to, not which story step it is.

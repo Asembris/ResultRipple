@@ -41,5 +41,18 @@ export function createScene(opts: {
   flow?: boolean;
 }): SceneHandle;
 
+/** Scene derivation, exported so tests can run the real functions on real stages. */
+export interface SceneEdgeDef {
+  id: string;
+  kind: string;
+  rel: string;
+}
+export function edgeDefs(stage: SceneStage): SceneEdgeDef[];
+export function edgeTarget(edge: SceneEdgeDef, stage: SceneStage): { vis: boolean; tone: string };
+export function nodeText(
+  node: { id: string; type?: string },
+  stage: SceneStage,
+): { sub?: string; tag: [string, string] | null };
+
 export const PALETTE: Record<"ivory" | "amber" | "coral" | "sage" | "dim" | "faint", string>;
 export const LAYERS: [string, number][];
