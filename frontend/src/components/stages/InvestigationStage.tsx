@@ -303,10 +303,7 @@ export default function InvestigationStage({ context }: { context: StageContext 
       {job && (
         <div className="rr-run">
           <div className="rr-run__head">
-            <span>
-              Run record · {job.job_id}
-              {requesterName ? ` · requested by ${requesterName}` : ""}
-            </span>
+            <span>Run record · {job.job_id}</span>
             <span
               style={{
                 color: FAILED.includes(job.status)
@@ -340,6 +337,7 @@ export default function InvestigationStage({ context }: { context: StageContext 
               {(job.elapsed_ms / 1000).toFixed(1)}s · {job.usage.total_tokens ?? 0} tokens
               {job.usage.reasoning_tokens ? ` (${job.usage.reasoning_tokens} reasoning)` : ""} ·{" "}
               {job.model}
+              {requesterName ? ` · requested by ${requesterName}` : ""}
             </div>
           )}
         </div>
