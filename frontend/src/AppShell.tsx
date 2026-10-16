@@ -234,8 +234,12 @@ export default function AppShell({
 
   const width = panelWidth(viewport);
   const insets: GraphInsets = useMemo(
-    () => (introDone ? { top: 120, right: width, bottom: 190, left: 0 } : { top: 0, right: 0, bottom: 0, left: 0 }),
-    [introDone, width],
+    // Below 1600 px the left lane labels need room the graph would otherwise take.
+    () =>
+      introDone
+        ? { top: 120, right: width, bottom: 190, left: viewport < 1600 ? 110 : 0 }
+        : { top: 0, right: 0, bottom: 0, left: 0 },
+    [introDone, width, viewport],
   );
 
   const chrome = {

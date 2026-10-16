@@ -22,6 +22,17 @@ export const STEP_NAMES = [
   "Editions",
 ] as const;
 
+/** The same steps, short enough to keep every label visible on a laptop screen. */
+export const STEP_SHORT_NAMES = [
+  "Desk",
+  "Correct",
+  "Agent",
+  "Review",
+  "Authority",
+  "Re-approve",
+  "Editions",
+] as const;
+
 export type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 /** An authoring-start workspace's first edition. It is not a correction. */

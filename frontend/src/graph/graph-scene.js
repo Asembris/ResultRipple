@@ -252,15 +252,15 @@ function makeLabel(def, layer) {
   el.style.cssText = 'position:absolute;left:0;top:0;opacity:0;pointer-events:none;white-space:nowrap;will-change:transform,opacity;text-shadow:0 1px 14px rgba(8,7,6,.95),0 0 3px rgba(8,7,6,.9)';
   const major = ['comparison', 'finding', 'document', 'decision'].includes(def.type);
   const t = document.createElement('div');
-  if (def.type === 'batch') t.style.cssText = `font:500 10.5px/1 ${FONT_MONO};color:#A39A8C;letter-spacing:.04em`;
+  if (def.type === 'batch') t.style.cssText = `font:500 12px/1 ${FONT_MONO};color:#A39A8C;letter-spacing:.02em`;
   else if (def.type === 'lane') t.style.cssText = `font:400 26px/1 ${FONT_SERIF};color:#EFE8DA`;
   else if (major) t.style.cssText = `font:400 21px/1.05 ${FONT_SERIF};color:#EFE8DA`;
   else t.style.cssText = `font:500 13.5px/1.15 ${FONT_SANS};color:#EFE8DA;letter-spacing:.01em`;
   t.textContent = def.label;
   const s = document.createElement('div');
-  s.style.cssText = `font:400 11px/1.3 ${FONT_MONO};color:#A39A8C;margin-top:5px`;
+  s.style.cssText = `font:400 12px/1.3 ${FONT_MONO};color:#A39A8C;margin-top:5px`;
   const g = document.createElement('div');
-  g.style.cssText = `display:none;font:600 9.5px/1 ${FONT_MONO};letter-spacing:.12em;padding:4px 6px 3px;border-radius:2px;margin-top:6px;width:max-content`;
+  g.style.cssText = `display:none;font:600 12px/1 ${FONT_MONO};letter-spacing:.08em;padding:4px 6px 3px;border-radius:2px;margin-top:6px;width:max-content`;
   const align = def.anchor === 'left' ? 'right' : def.anchor === 'below' ? 'center' : 'left';
   el.style.textAlign = align;
   if (align === 'right') g.style.marginLeft = 'auto';
@@ -274,6 +274,7 @@ function setLabelText(L, txt, base) {
   if (key === L.last) return;
   L.last = key;
   L.t.textContent = txt.title || base;
+  L.w = 0;
   L.s.textContent = txt.sub || '';
   L.s.style.display = txt.sub ? 'block' : 'none';
   if (txt.tag) {
@@ -285,13 +286,19 @@ function setLabelText(L, txt, base) {
     L.g.style.background = `${c}14`;
   } else L.g.style.display = 'none';
 }
-function placeLabel(L, anchor, x, y) {
+// Labels stay inside the visible canvas: never off its edges, never under the
+// panel on the right (bounds.right) or the masthead (bounds.top).
+function placeLabel(L, anchor, x, y, bounds) {
   const g = L.gap;
-  const tf = anchor === 'left' ? `translate(${x - g}px,${y}px) translate(-100%,-50%)`
-    : anchor === 'below' ? `translate(${x}px,${y + g}px) translate(-50%,0)`
-    : anchor === 'above' ? `translate(${x}px,${y - g}px) translate(-50%,-100%)`
-    : `translate(${x + g}px,${y}px) translate(0,-50%)`;
-  L.el.style.transform = tf;
+  if (!L.w) { L.w = L.el.offsetWidth; L.h = L.el.offsetHeight; }
+  const w = L.w, h = L.h;
+  let left = anchor === 'left' ? x - g - w : anchor === 'below' || anchor === 'above' ? x - w / 2 : x + g;
+  let top = anchor === 'below' ? y + g : anchor === 'above' ? y - g - h : y - h / 2;
+  if (bounds && w) {
+    left = Math.max(bounds.left, Math.min(bounds.right - w, left));
+    top = Math.max(bounds.top, Math.min(bounds.bottom - h, top));
+  }
+  L.el.style.transform = `translate(${left}px,${top}px)`;
 }
 
 function haloTexture() {
@@ -419,7 +426,7 @@ export function createScene(opts) {
     let tagEl = null;
     if (def.tag) {
       tagEl = document.createElement('div');
-      tagEl.style.cssText = `position:absolute;left:0;top:0;opacity:0;pointer-events:none;white-space:nowrap;font:500 9.5px/1 ${FONT_MONO};letter-spacing:.1em;color:#8C8476;text-shadow:0 0 8px #0E0C0A,0 0 3px #0E0C0A`;
+      tagEl.style.cssText = `position:absolute;left:0;top:0;opacity:0;pointer-events:none;white-space:nowrap;font:500 12px/1 ${FONT_MONO};letter-spacing:.06em;color:#8C8476;text-shadow:0 0 8px #0E0C0A,0 0 3px #0E0C0A`;
       tagEl.textContent = def.rel;
       labelLayer.appendChild(tagEl);
     }
@@ -737,8 +744,12 @@ export function createScene(opts) {
       const x = (lp.x * 0.5 + 0.5) * W, y = (-lp.y * 0.5 + 0.5) * H;
       const labelIntro = intro ? clamp((it - 1.2) / 0.8) : 1;
       const o = n.vis * labelIntro * (n.dim > 0.5 ? 1 : 0.28 + n.dim * 0.5);
-      n.label.el.style.opacity = lp.z < 1 ? o.toFixed(3) : '0';
-      placeLabel(n.label, n.def.anchor, x, y);
+      const bounds = { left: 8, top: 72, right: W - ins.right - 12, bottom: H - 8 };
+      // A node outside the visible canvas, such as under the panel, shows no label;
+      // a visible node's label is kept inside the canvas.
+      const onCanvas = x >= bounds.left + 16 && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
+      n.label.el.style.opacity = lp.z < 1 && onCanvas ? o.toFixed(3) : '0';
+      placeLabel(n.label, n.def.anchor, x, y, bounds);
     });
 
     // edges
@@ -765,7 +776,8 @@ export function createScene(opts) {
         e.curve.getPoint(0.5, tmp); tmp.project(camera);
         const W = container.clientWidth, H = container.clientHeight;
         e.tagEl.style.transform = `translate(${(tmp.x * 0.5 + 0.5) * W}px,${(-tmp.y * 0.5 + 0.5) * H}px) translate(-50%,-140%)`;
-        const lo = (intro ? clamp((it - 1.6) / 0.8) : 1) * clamp(e.reveal * 1.4 - 0.4) * (inTrace ? 1 : 0.2);
+        const traced = !!focusSet && focusSet.edges.has(e.id);
+        const lo = (intro ? clamp((it - 1.6) / 0.8) : 1) * clamp(e.reveal * 1.4 - 0.4) * (traced ? 1 : 0);
         e.tagEl.style.opacity = lo.toFixed(3);
         e.tagEl.style.color = e.tReveal > 0.5 ? '#8C8476' : PALETTE.coral;
       }
@@ -789,7 +801,7 @@ export function createScene(opts) {
   // layer headers
   const headers = LAYERS.map(([name, x]) => {
     const h = document.createElement('div');
-    h.style.cssText = `position:absolute;left:0;top:0;pointer-events:none;white-space:nowrap;font:500 10.5px/1 ${FONT_MONO};letter-spacing:.2em;text-transform:uppercase;color:#8C8476;opacity:0;transition:opacity .8s`;
+    h.style.cssText = `position:absolute;left:0;top:0;pointer-events:none;white-space:nowrap;font:500 12px/1 ${FONT_MONO};letter-spacing:.16em;text-transform:uppercase;color:#8C8476;opacity:0;transition:opacity .8s`;
     h.textContent = name; labelLayer.appendChild(h);
     return { h, x };
   });
@@ -797,10 +809,12 @@ export function createScene(opts) {
     headers.forEach(({ h, x }) => {
       tmp.set(x, 8.7, 0).project(camera);
       h.style.transform = `translate(${(tmp.x * 0.5 + 0.5) * container.clientWidth}px,${(-tmp.y * 0.5 + 0.5) * container.clientHeight}px) translate(-50%,-50%)`;
-      h.style.opacity = intro ? '0' : '1';
+      h.style.opacity = intro || focus !== 'overview' ? '0' : '1';
     });
   };
   const headerTick = () => { if (!alive) return; headerStep(); requestAnimationFrame(headerTick); };
+  // A label measured before the web fonts arrived is measured again.
+  document.fonts?.ready?.then(() => { nodes.forEach((n) => { n.label.w = 0; }); });
   requestAnimationFrame(headerTick);
 
   // ---- inspection ----
