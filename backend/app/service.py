@@ -495,7 +495,7 @@ def approve_plan(
                 "the assigned reviewer changed; refresh the review",
                 context=_authority_witness(plan, context),
             )
-        if actor.person_id != context.authority.reviewer_id:
+        if actor.person_id != context.authority.reviewer_id or not actor.review_capable:
             raise WorkflowRefused(
                 "NOT_AUTHORIZED",
                 "document ownership and a review-capable identity are not approval authority",
@@ -667,10 +667,10 @@ def issue_release(
             raise WorkflowRefused(
                 _status_refusal_code(plan["status"]), f"plan is {plan['status']}"
             )
-        if actor.person_id != context.authority.reviewer_id:
+        if actor.person_id != context.authority.reviewer_id or not actor.review_capable:
             raise WorkflowRefused(
                 "NOT_AUTHORIZED",
-                "only the current reviewer may issue this package",
+                "only the current, review-capable reviewer may issue this package",
                 http_status=403,
                 context={"current_reviewer_id": context.authority.reviewer_id},
             )

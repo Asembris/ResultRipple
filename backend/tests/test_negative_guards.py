@@ -381,3 +381,38 @@ def test_the_rota_change_acts_on_the_team_that_owns_the_decision(seeded, ari, op
     decision = helpers.workspace(ari)["decision"]
     assert decision["team_id"] == "team-expansion-board"
     assert decision["current_reviewer_id"] == domain.PERSON_NOOR
+
+
+def test_a_review_edge_to_a_non_reviewer_grants_no_approval(seeded, ari, noor) -> None:
+    """Audit B weakness 3b: the analyst rebound as reviewer can neither approve nor issue."""
+    helpers.apply_correction(ari)
+    graph = seeded["graph"]
+    graph.run(
+        """
+        MATCH (team:Team {id:$team})-[a:REVIEWED_BY]->(), (ari:Person {id:$ari})
+        DELETE a
+        CREATE (team)-[:REVIEWED_BY]->(ari)
+        """,
+        {"team": domain.TEAM_ID, "ari": domain.PERSON_ARI},
+    )
+    plan = helpers.staged_plan(ari, key="analyst-as-reviewer")
+    assert plan["assigned_reviewer_id"] == domain.PERSON_ARI
+
+    refused = helpers.approve(ari, plan)
+    assert refused.status_code == 403
+    assert refused.json()["code"] == "NOT_AUTHORIZED"
+
+    # Even an approval recorded by another path is not issuable by a non-reviewer.
+    graph.run(
+        """
+        MATCH (p:ReviewPlan {id:$plan})-[:FOR_CASE]->(c:CorrectionCase)
+        SET p.status = 'APPROVED', c.status = 'APPROVED'
+        """,
+        {"plan": plan["plan_id"]},
+    )
+    issued = helpers.release(ari, plan["plan_id"], "op-analyst-reviewer")
+    assert issued.status_code == 403
+    assert issued.json()["code"] == "NOT_AUTHORIZED"
+    assert helpers.workspace(ari)["current_release"]["release_id"] == (
+        seeded["version_one"]["release_id"]
+    )
