@@ -48,7 +48,16 @@ OPTIONAL MATCH (occ:Occurrence)-[location:IN_DOCUMENT]->(doc)
 OPTIONAL MATCH (occ)-[instance:OF_CLAIM]->(cl:Claim)
 OPTIONAL MATCH (cl)-[binding:BASED_ON]->(cmp:Comparison)
 OPTIONAL MATCH (doc)-[ownership:OWNED_BY]->(owner:Person)
-RETURN doc.id AS document_id, ..., occ.id AS occurrence_id,
+RETURN doc.id AS document_id, doc.title AS document_title,
+       doc.template AS document_template,
+       doc.source_blocks AS source_blocks,
+       doc.source_revision AS source_revision,
+       doc.source_sha AS source_sha,
+       owner.id AS owner_id, owner.display_name AS owner_name,
+       occ.id AS occurrence_id, occ.card_style AS card_style,
+       occ.block_id AS block_id, occ.original_assertion AS original_assertion,
+       cl.id AS claim_id, cl.definition_version AS claim_definition_version,
+       cmp.id AS comparison_id,
        ID(location) AS location_edge_id, ID(instance) AS instance_edge_id,
        ID(binding) AS binding_edge_id, ID(ownership) AS ownership_edge_id
 ORDER BY document_id, occurrence_id
@@ -66,7 +75,9 @@ OPTIONAL MATCH (decision)-[basis:BASED_ON]->(cl:Claim)
 OPTIONAL MATCH (decision)-[ownership:OWNED_BY]->(team:Team)
 OPTIONAL MATCH (team)-[authority:REVIEWED_BY]->(reviewer:Person)
 RETURN decision.id AS decision_id, decision.status AS decision_status,
-       cl.id AS basis_claim_id, team.id AS team_id, reviewer.id AS reviewer_id,
+       decision.title AS decision_title, cl.id AS basis_claim_id,
+       team.id AS team_id, team.name AS team_name,
+       reviewer.id AS reviewer_id, reviewer.display_name AS reviewer_name,
        ID(basis) AS basis_edge_id, ID(ownership) AS ownership_edge_id,
        ID(authority) AS authority_edge_id
 ```
@@ -268,6 +279,119 @@ After authoring, the correction case's traversal (query B) reaches the authored
 claim and both occurrences, and must equal the inventory (query C). The decision
 is read by id (query D); the release changes its status only through its
 recorded basis path (query F). No document list is supplied anywhere.
+
+## I. The plan lifecycle
+
+**Create a plan over the complete scope.** Staging, the agent's `stage_review` and the
+reviewer-only refresh all persist plans through this one write. Every guard precedes the
+first `CREATE`, so a plan is written whole or not at all:
+
+```cypher
+MATCH (c:CorrectionCase {id:$case_id}),
+      (reviewer:Person {id:$reviewer_id}),
+      (occ:Occurrence)
+WHERE occ.id IN $occurrence_ids
+OPTIONAL MATCH (clash:ReviewPlan {id:$plan_id})
+WITH c, reviewer, collect(DISTINCT occ) AS covered, count(clash) AS clashes
+WHERE size(covered) = $expected_scope_size AND clashes = 0
+CREATE (p:ReviewPlan {id:$plan_id, version:$version, status:'AWAITING_REVIEW', ...})
+CREATE (p)-[:FOR_CASE]->(c)
+CREATE (p)-[:ASSIGNED_TO_REVIEWER]->(reviewer)
+SET c.status = 'AWAITING_REVIEW'
+WITH p, covered
+UNWIND covered AS member
+CREATE (p)-[:COVERS]->(member)
+WITH DISTINCT p
+RETURN p.id AS plan_id
+```
+
+The elided properties are the plan fields listed in
+[graph-model.md](graph-model.md). A refresh then marks the previous version
+`SUPERSEDED` with `superseded_by` and its reason, in a second write.
+
+**Approve one exact version and fingerprint:**
+
+```cypher
+MATCH (p:ReviewPlan {id:$plan_id})-[:ASSIGNED_TO_REVIEWER]->(reviewer:Person {id:$reviewer_id}),
+      (p)-[:FOR_CASE]->(c:CorrectionCase)
+WHERE p.status = 'AWAITING_REVIEW' AND p.version = $version
+  AND p.execution_fingerprint = $fingerprint
+WITH p, reviewer, collect(DISTINCT c) AS cases
+WHERE size(cases) = 1
+WITH p, reviewer, head(cases) AS c
+SET p.status = 'APPROVED', p.approved_at = $approved_at,
+    p.approved_by = $reviewer_id,
+    p.acknowledged_alternative = $acknowledged_alternative,
+    c.status = 'APPROVED'
+CREATE (p)-[:APPROVED_BY]->(reviewer)
+RETURN p.id AS plan_id, p.version AS version
+```
+
+The service compares the actor with the reviewer read live from query D before this
+runs. Rejection is the same shape, setting `REJECTED` and moving the case to
+`NEEDS_CHANGES`.
+
+**Record a refused approval or release after a reviewer change.** This keeps the old
+approval as history, never as permission:
+
+```cypher
+MATCH (p:ReviewPlan {id:$plan_id})
+WHERE p.status IN ['APPROVED', 'AWAITING_REVIEW']
+SET p.status = 'STALE_AUTHORITY', p.invalidation_reason = $reason,
+    p.refused_action = $action, p.refused_at = $at
+```
+
+**Retire a plan the evidence moved past, and reopen the case:**
+
+```cypher
+MATCH (p:ReviewPlan {id:$plan_id})-[:FOR_CASE]->(c:CorrectionCase)
+WHERE p.status IN ['APPROVED', 'AWAITING_REVIEW']
+  AND c.status IN ['APPROVED', 'AWAITING_REVIEW']
+SET p.status = 'INVALIDATED', p.invalidation_reason = $reason,
+    p.invalidated_at = $at, c.status = 'NEEDS_CHANGES'
+RETURN p.id AS plan_id, c.id AS case_id
+```
+
+## J. The agent's writes
+
+The agent never writes a fact. Its only graph writes are its own job record and, when it
+asks instead of acting, the case's waiting state.
+
+```cypher
+MATCH (c:CorrectionCase {id:$case_id})
+OPTIONAL MATCH (clash:AgentJob {id:$job_id})
+WITH c, count(clash) AS clashes
+WHERE clashes = 0
+CREATE (j:AgentJob {id:$job_id, status:$status, request_text:$request_text, ...})
+CREATE (j)-[:FOR_CASE]->(c)
+RETURN j.id AS job_id
+```
+
+Progress is written with `MATCH (j:AgentJob {id:$job_id}) SET j += $fields`. The fields
+are the sanitized events, usage, counts, timing, plan id and error code, never private
+reasoning. On startup every non-terminal job is marked `INTERRUPTED`.
+
+`request_clarification` persists the question, guarded on the case's current state, so
+it can never overwrite a case already awaiting review, approved or issued:
+
+```cypher
+MATCH (c:CorrectionCase {id:$case_id})
+WHERE c.status IN $allowed_states
+SET c.status = 'NEEDS_CLARIFICATION',
+    c.clarification_field = $missing_field,
+    c.clarification_question = $question,
+    c.clarification_context_ids = $context_ids,
+    c.clarification_asked_at = $asked_at,
+    c.clarification_asked_by = $asked_by,
+    c.clarification_job_id = $job_id
+RETURN c.id AS case_id, c.status AS status, c.clarification_question AS question
+```
+
+## K. Operator reset
+
+`POST /demo/reset` runs `MATCH (n) DETACH DELETE n` only after it has taken the workspace
+lock and found no unfinished agent run. It then clears the artifact volume and reseeds
+through the same functions as `scripts.seed_demo`.
 
 ## Running them yourself
 
