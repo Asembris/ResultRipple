@@ -189,7 +189,7 @@ describe("the agent surface", () => {
     // Both the composer and the recorded run show the instruction verbatim.
     expect(panel.getAllByText(AGENT_JOB_STAGED.request_text).length).toBeGreaterThan(0);
     expect(panel.getByText(/Read current context from FalkorDB/)).toBeDefined();
-    expect(panel.getByText(/asked for inspect_impact/)).toBeDefined();
+    expect(panel.getByText(/asked to investigate registered impact \(inspect_impact\)/)).toBeDefined();
     expect(panel.getByText(/investigated registered impact/)).toBeDefined();
     expect(panel.getByText(/staged the candidate review/)).toBeDefined();
 
@@ -210,7 +210,7 @@ describe("the agent surface", () => {
     expect(await panel.findByText("Requested")).toBeDefined();
     expect(panel.getByText("Evidence")).toBeDefined();
     expect(panel.getByText("Proposed")).toBeDefined();
-    expect(panel.getByText(/keep the cheaper claim/)).toBeDefined();
+    expect(panel.getByText(/read as “keep the cheaper claim”/)).toBeDefined();
     expect(panel.getByText(/South costs \$0\.40 more per parcel than North/)).toBeDefined();
     expect(
       panel.getByText(/Correct 2 registered uses and return the .* for review/),

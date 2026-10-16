@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ApiRefusal, fetchJob, startAgentRun, stageReview } from "../../api";
-import type { AgentEvent, AgentJob, JobStatus } from "../../types";
-import { RELATION_PHRASE, money, stagingAttempt } from "../../workflow";
+import { ApiRefusal, fetchJob, fetchPlan, startAgentRun, stageReview } from "../../api";
+import type { AgentEvent, AgentJob, JobStatus, Plan } from "../../types";
+import {
+  RELATION_PHRASE,
+  caseFinished,
+  dispositionLabel,
+  goalLabel,
+  money,
+  stagingAttempt,
+} from "../../workflow";
 import type { StageContext } from "./context";
 
 /**
@@ -26,18 +33,19 @@ const STATUS_LABEL: Record<JobStatus, string> = {
   INTERRUPTED: "Interrupted by a restart",
 };
 
-const GOAL_LABEL: Record<string, string> = {
-  CORRECT_FACTS: "correct the published facts",
-  PRESERVE_PROPOSAL: "keep the proposal open for review",
-  RETAIN_CHEAPER_CLAIM: "keep the cheaper claim",
-  UNKNOWN: "unclear",
-};
-
 const TOOL_LABEL: Record<string, string> = {
   get_case_context: "re-read the case",
   inspect_impact: "investigated registered impact",
   stage_review: "staged the candidate review",
   request_clarification: "recorded one question",
+};
+
+/** What a model turn asked for, in plain words, with the tool's own name. */
+const TOOL_ASK: Record<string, string> = {
+  get_case_context: "re-read the case (get_case_context)",
+  inspect_impact: "investigate registered impact (inspect_impact)",
+  stage_review: "stage the candidate review (stage_review)",
+  request_clarification: "ask one question (request_clarification)",
 };
 
 const FAILED: JobStatus[] = ["TOOL_ERROR", "STALE_CONTEXT", "TIMED_OUT", "INTERRUPTED"];
@@ -56,7 +64,7 @@ function describe(event: AgentEvent): string {
   if (event.kind === "context") return `Read current context from FalkorDB: ${event.summary}`;
   if (event.kind === "model") {
     const tools = event.requested_tools?.length
-      ? `asked for ${event.requested_tools.join(", ")}`
+      ? `asked to ${event.requested_tools.map((tool) => TOOL_ASK[tool] ?? tool).join(", ")}`
       : "answered without a tool call";
     return `Model turn ${event.turn}: ${tools}`;
   }
@@ -80,6 +88,11 @@ export default function InvestigationStage({ context }: { context: StageContext 
   const [job, setJob] = useState<AgentJob | null>(null);
   const [starting, setStarting] = useState(false);
   const finished = useRef<string | null>(null);
+  // A job this mount watched while it ran, or started itself. Only its
+  // completion moved the world while the panel was open; a run that was
+  // already over when the panel mounted is history and changes no view.
+  const watched = useRef<string | null>(null);
+  const [runPlan, setRunPlan] = useState<Plan | null>(null);
 
   const latestRun = kase?.agent_runs.at(-1) ?? null;
 
@@ -96,10 +109,12 @@ export default function InvestigationStage({ context }: { context: StageContext 
     try {
       const next = await fetchJob(jobId);
       setJob(next);
+      if (!next.terminal) watched.current = next.job_id;
       if (next.terminal && finished.current !== next.job_id) {
         finished.current = next.job_id;
-        // A finished run moved the world: re-read it rather than assume.
-        await context.commit(async () => next);
+        // A run that finished in front of this panel moved the world: re-read
+        // it rather than assume. One that was already over is only read.
+        if (watched.current === next.job_id) await context.commit(async () => next);
       }
     } catch {
       /* a lost poll is not a state change */
@@ -110,9 +125,34 @@ export default function InvestigationStage({ context }: { context: StageContext 
     if (!jobId) return;
     void poll();
     // Short polling against the real job record; there is nothing to animate.
-    const timer = window.setInterval(() => void poll(), 900);
+    const timer = window.setInterval(() => {
+      if (finished.current !== jobId) void poll();
+    }, 900);
     return () => window.clearInterval(timer);
   }, [jobId, poll]);
+
+  // The plan the recorded run staged, which a later version may have replaced.
+  const runPlanId = job?.plan_id ?? null;
+  const knownRunPlan =
+    [context.plan, context.priorPlan].find((entry) => entry?.plan_id === runPlanId) ?? null;
+  const knownRunPlanId = knownRunPlan?.plan_id ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    if (!runPlanId || knownRunPlanId) {
+      setRunPlan(null);
+      return;
+    }
+    fetchPlan(runPlanId)
+      .then((value) => {
+        if (!cancelled) setRunPlan(value);
+      })
+      .catch(() => {
+        if (!cancelled) setRunPlan(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runPlanId, knownRunPlanId]);
 
   if (!kase) return null;
 
@@ -134,6 +174,7 @@ export default function InvestigationStage({ context }: { context: StageContext 
     try {
       const accepted = await startAgentRun(kase.case_id, draft.trim());
       finished.current = null;
+      watched.current = accepted.job_id;
       setJobId(accepted.job_id);
     } catch (error) {
       // Show the server's own refusal, such as a reviewer starting a run.
@@ -146,35 +187,56 @@ export default function InvestigationStage({ context }: { context: StageContext 
     }
   };
 
-  const staged = plan && plan.status !== "ISSUED" ? plan : null;
+  const done = caseFinished(kase);
+  // In a finished case the panel shows what the recorded run staged; while the
+  // case is open it shows the plan currently in review.
+  const staged = done ? (knownRunPlan ?? runPlan) : plan && plan.status !== "ISSUED" ? plan : null;
   const comparison = workspace.comparison;
-  const analystName = workspace.people.find((p) => p.person_id === kase.applied_by)?.display_name;
-  const heading = staged
-    ? `${(plan?.staged_by && workspace.people.find((p) => p.person_id === plan.staged_by)?.display_name.split(" ")[0]) ?? analystName?.split(" ")[0] ?? "The analyst"} asked to ${GOAL_LABEL[staged.goal] ?? staged.goal.toLowerCase()}.`
-    : running
-      ? "The agent is investigating."
-      : "What should happen to the published work?";
+  const nameOf = (id: string | null | undefined) =>
+    workspace.people.find((p) => p.person_id === id)?.display_name ?? null;
+  const analystName = nameOf(kase.applied_by);
+  const requesterName = nameOf(job?.requested_by) ?? analystName;
+  const heading = done
+    ? staged
+      ? `The agent read ${requesterName?.split(" ")[0] ?? "the analyst"}'s request as “${goalLabel(staged.goal)}”${
+          staged.alternative_flag ? " and proposed an alternative." : "."
+        }`
+      : "What the agent did."
+    : staged
+      ? `${(plan?.staged_by && nameOf(plan.staged_by)?.split(" ")[0]) ?? analystName?.split(" ")[0] ?? "The analyst"} asked to ${goalLabel(staged.goal)}.`
+      : running
+        ? "The agent is investigating."
+        : "What should happen to the published work?";
 
   return (
     <section className="rr-stage" role="region" aria-label="Ask the agent">
       <h1>{heading}</h1>
 
-      <div>
-        <label className="rr-field" htmlFor="rr-request">
-          {actor ? `${actor.display_name}'s request, in their own words` : "The analyst's request"}
-        </label>
-        <textarea
-          id="rr-request"
-          className="rr-composer"
-          rows={3}
-          value={draft}
-          maxLength={2000}
-          disabled={!signedIn || running}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-      </div>
+      {done && (
+        <p className="rr-copy">
+          The recorded run, as the server stored it. Every line below is an event it measured; the
+          model wrote no figure and no card text.
+        </p>
+      )}
 
-      {!staged && (
+      {!done && (
+        <div>
+          <label className="rr-field" htmlFor="rr-request">
+            {actor ? `${actor.display_name}'s request, in their own words` : "The analyst's request"}
+          </label>
+          <textarea
+            id="rr-request"
+            className="rr-composer"
+            rows={3}
+            value={draft}
+            maxLength={2000}
+            disabled={!signedIn || running}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+        </div>
+      )}
+
+      {!staged && !done && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {signedIn ? (
             <button type="button" className="rr-primary" onClick={run} disabled={!canRun}>
@@ -241,7 +303,10 @@ export default function InvestigationStage({ context }: { context: StageContext 
       {job && (
         <div className="rr-run">
           <div className="rr-run__head">
-            <span>Run record · {job.job_id}</span>
+            <span>
+              Run record · {job.job_id}
+              {requesterName ? ` · requested by ${requesterName}` : ""}
+            </span>
             <span
               style={{
                 color: FAILED.includes(job.status)
@@ -331,7 +396,7 @@ export default function InvestigationStage({ context }: { context: StageContext 
               <div>
                 <div className="rr-trip__requested">{staged.raw_request}</div>
                 <div className="rr-trip__meta">
-                  <span>goal {staged.goal}</span>
+                  <span>read as “{goalLabel(staged.goal)}”</span>
                   {staged.alternative_flag && <span className="rr-pill rr-pill--coral">CONTRADICTED</span>}
                 </div>
               </div>
@@ -364,10 +429,16 @@ export default function InvestigationStage({ context }: { context: StageContext 
                   {workspace.decision?.title ?? "proposal"} for review.
                 </div>
                 <div className="rr-trip__meta">
-                  <span>{staged.disposition}</span>
-                  {staged.alternative_flag && (
-                    <span className="rr-pill rr-pill--amber">ALTERNATIVE · NEEDS ACKNOWLEDGMENT</span>
-                  )}
+                  <span>{dispositionLabel(staged.disposition)}</span>
+                  {staged.alternative_flag &&
+                    (staged.acknowledged_alternative && staged.approved_by ? (
+                      <span className="rr-pill rr-pill--amber">
+                        ALTERNATIVE · ACKNOWLEDGED BY{" "}
+                        {(nameOf(staged.approved_by) ?? staged.approved_by).toUpperCase()}
+                      </span>
+                    ) : (
+                      <span className="rr-pill rr-pill--amber">ALTERNATIVE · NEEDS ACKNOWLEDGMENT</span>
+                    ))}
                 </div>
               </div>
             </div>
@@ -376,17 +447,23 @@ export default function InvestigationStage({ context }: { context: StageContext 
             <div className="rr-note__label">agent note · unassessed commentary</div>
 
             <div className="rr-copy" style={{ marginTop: 20 }}>
-              Plan v{staged.version} is staged as a draft for{" "}
+              Plan v{staged.version} {done ? "was" : "is"} staged as a draft for{" "}
               <span style={{ color: "var(--rr-ink)" }}>
                 {staged.assigned_reviewer_name ?? staged.assigned_reviewer_id}
               </span>
-              , the current reviewer.
+              {done
+                ? ", the reviewer at the time. The agent cannot approve, publish, or reassign anyone."
+                : ", the current reviewer."}
             </div>
           </div>
 
           {context.serverStep > 3 && (
             <button type="button" className="rr-primary" onClick={() => context.goTo(4)}>
-              <span>Open {staged.assigned_reviewer_name?.split(" ")[0] ?? "the"}&apos;s review</span>
+              <span>
+                {done
+                  ? "Next: the review"
+                  : `Open ${staged.assigned_reviewer_name?.split(" ")[0] ?? "the"}'s review`}
+              </span>
               <span>→</span>
             </button>
           )}

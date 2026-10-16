@@ -1,6 +1,6 @@
 import { applyCorrection } from "../../api";
 import { documentNodeKey } from "../../graph/stageFromWorkspace";
-import { RELATION_PHRASE, contradicted, money } from "../../workflow";
+import { RELATION_PHRASE, caseFinished, contradicted, money } from "../../workflow";
 import type { StageContext } from "./context";
 
 /**
@@ -206,7 +206,7 @@ function Consequences({ context }: { context: StageContext }) {
 
       {context.serverStep > 2 && (
         <button type="button" className="rr-primary" onClick={() => context.goTo(3)}>
-          <span>Ask the agent to prepare the review</span>
+          <span>{caseFinished(kase) ? "See what the agent did" : "Ask the agent to prepare the review"}</span>
           <span>→</span>
         </button>
       )}
