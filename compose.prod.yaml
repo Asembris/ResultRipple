@@ -65,6 +65,13 @@ services:
       - caddy-config:/config
     networks:
       - edge
+    healthcheck:
+      # The loopback-only listener from the Caddyfile: Caddy is up and serving.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 6
     depends_on:
       api:
         condition: service_healthy
