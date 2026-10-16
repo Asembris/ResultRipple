@@ -27,12 +27,16 @@ IMPLEMENTED_SCOPE = [
     "readiness",
     "authenticated-demo-sessions",
     "workspace",
+    "finding-authoring",
     "evidence-correction",
     "deterministic-staging",
     "nvidia-agent-runs",
     "human-approval",
     "independent-verification",
     "immutable-editions",
+    "reviewer-reassignment",
+    "review-refresh",
+    "operator-reset",
 ]
 
 settings = get_settings()

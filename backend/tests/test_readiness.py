@@ -55,6 +55,27 @@ def test_readiness_reports_a_connected_graph(stub_graph) -> None:
     assert body["falkordb"]["error_code"] is None
 
 
+def test_readiness_lists_every_implemented_capability(stub_graph) -> None:
+    scope = stub_graph(CONNECTED).get("/ready").json()["implemented_scope"]
+
+    assert scope == [
+        "health",
+        "readiness",
+        "authenticated-demo-sessions",
+        "workspace",
+        "finding-authoring",
+        "evidence-correction",
+        "deterministic-staging",
+        "nvidia-agent-runs",
+        "human-approval",
+        "independent-verification",
+        "immutable-editions",
+        "reviewer-reassignment",
+        "review-refresh",
+        "operator-reset",
+    ]
+
+
 def test_readiness_fails_closed_when_the_graph_is_unreachable(stub_graph) -> None:
     response = stub_graph(UNREACHABLE).get("/ready")
 
