@@ -147,7 +147,9 @@ describe("stageFromWorkspace", () => {
     expect(stageFromWorkspace(ws, plan({ status: "AWAITING_REVIEW" }), "review").plan).toBe("v1-assigned");
     expect(stageFromWorkspace(ws, plan({ status: "APPROVED" }), "review").plan).toBe("v1-approved");
     expect(stageFromWorkspace(ws, plan({ status: "STALE_AUTHORITY" }), "authority").plan).toBe("v1-invalid");
-    expect(stageFromWorkspace(ws, plan({ status: "REJECTED" }), "review").plan).toBe("v1-assigned");
+    expect(stageFromWorkspace(ws, plan({ status: "REJECTED" }), "review").plan).toBe("v1-rejected");
+    expect(stageFromWorkspace(ws, plan({ status: "INVALIDATED" }), "review").plan).toBe("v1-retired");
+    expect(stageFromWorkspace(ws, plan({ status: "SUPERSEDED" }), "review").plan).toBe("v1-assigned");
     expect(first.length).toBeGreaterThan(0);
   });
 

@@ -15,6 +15,13 @@ const comparisonTag = (stage: ReturnType<typeof stageFromWorkspace>) =>
   nodeText({ id: "comparison", type: "comparison" }, stage).tag;
 
 describe("graph scene derivation", () => {
+  it("labels a retired plan as invalidated, never as awaiting", () => {
+    const stage = { ...stageFromWorkspace(WORKSPACE_CORRECTED, null, "review"), plan: "v1-retired" as const };
+    const text = nodeText({ id: "plan", type: "plan" }, stage);
+    expect(text.sub).toBe("retired · can no longer be approved");
+    expect(text.tag).toEqual(["INVALIDATED", "coral"]);
+  });
+
   it("tags a reversed direction only when the relation changed", () => {
     const stage = stageFromWorkspace(WORKSPACE_CORRECTED, null, "overview");
     expect(stage.reversed).toBe(true);

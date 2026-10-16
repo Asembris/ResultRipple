@@ -117,7 +117,7 @@ export function edgeDefs(s) {
 // `stale` is the server's own assessment (a registered card contradicted by
 // current evidence), never an inference from how far the story has run.
 const stale = (s) => !!(s && s.stale);
-const planTone = (p) => (/approved|issued/.test(p) ? 'sage' : /invalid/.test(p) ? 'coral' : 'amber');
+const planTone = (p) => (/approved|issued/.test(p) ? 'sage' : /invalid|retired|rejected/.test(p) ? 'coral' : 'amber');
 const reviewerIs = (s, who) => !!(s && s.authorityKnown && s.reviewer === who);
 
 function nodeTone(n, s) {
@@ -203,13 +203,13 @@ export function nodeText(n, s) {
     case 'plan': {
       const p = s.plan, v = p.startsWith('v2') ? 'v2' : 'v1';
       const who = txtOf(L.planReviewerName);
-      const base = { 'v1-assigned': 'awaiting', 'v1-approved': 'approved by', 'v1-invalid': 'approval no longer valid', 'v1-issued': 'released', 'v2-assigned': 'awaiting', 'v2-approved': 'approved by', 'v2-invalid': 'approval no longer valid', 'v2-issued': 'released' }[p] || '';
-      const sub = /invalid|issued/.test(p) ? base : who ? base + ' ' + who : base;
+      const base = { 'v1-assigned': 'awaiting', 'v1-approved': 'approved by', 'v1-invalid': 'approval no longer valid', 'v1-retired': 'retired · can no longer be approved', 'v1-rejected': 'rejected by the reviewer', 'v1-issued': 'released', 'v2-assigned': 'awaiting', 'v2-approved': 'approved by', 'v2-invalid': 'approval no longer valid', 'v2-retired': 'retired · can no longer be approved', 'v2-rejected': 'rejected by the reviewer', 'v2-issued': 'released' }[p] || '';
+      const sub = /invalid|retired|rejected|issued/.test(p) ? base : who ? base + ' ' + who : base;
       const title = txtOf(L.planTitle) ? L.planTitle + ' ' + v : 'Review plan ' + v;
       return {
         title,
         sub,
-        tag: /invalid/.test(p) ? ['AUTHORITY_CHANGED', 'coral'] : /approved|issued/.test(p) ? ['APPROVED' + (who ? ' · ' + who.toUpperCase() : ''), 'sage'] : null,
+        tag: /invalid/.test(p) ? ['AUTHORITY_CHANGED', 'coral'] : /retired/.test(p) ? ['INVALIDATED', 'coral'] : /rejected/.test(p) ? ['REJECTED', 'coral'] : /approved|issued/.test(p) ? ['APPROVED' + (who ? ' · ' + who.toUpperCase() : ''), 'sage'] : null,
       };
     }
     default: return EMPTY;

@@ -22,10 +22,14 @@ export type PlanVisual =
   | "v1-assigned"
   | "v1-approved"
   | "v1-invalid"
+  | "v1-retired"
+  | "v1-rejected"
   | "v1-issued"
   | "v2-assigned"
   | "v2-approved"
   | "v2-invalid"
+  | "v2-retired"
+  | "v2-rejected"
   | "v2-issued";
 
 /** One batch, with the lane it was recorded in and the lane it is in now. */
@@ -216,9 +220,14 @@ function planVisual(plans: PlanSummary[], latest: Plan | null): PlanVisual {
       return `${slot}-issued` as PlanVisual;
     case "STALE_AUTHORITY":
       return `${slot}-invalid` as PlanVisual;
+    case "INVALIDATED":
+      // Retired because the world moved: it can no longer be approved or issued.
+      return `${slot}-retired` as PlanVisual;
+    case "REJECTED":
+      return `${slot}-rejected` as PlanVisual;
     default:
-      // REJECTED / SUPERSEDED / NEEDS_CHANGES: the plan exists and is assigned,
-      // but nothing about it is approved. Never invent an approval here.
+      // SUPERSEDED / NEEDS_CHANGES: the plan exists and is assigned, but
+      // nothing about it is approved. Never invent an approval here.
       return `${slot}-assigned` as PlanVisual;
   }
 }
