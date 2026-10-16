@@ -340,3 +340,63 @@ def test_commit_release_refuses_two_pointers_before_any_write(seeded, ari, noor)
     assert graph.run("MATCH (r:Release {id:'rel-should-never-exist'}) RETURN count(r) AS n")[0][
         "n"
     ] == 0
+
+
+# -- approval and rejection: guards before the first write ----------------------
+
+
+def _orphan_plan(graph, plan_id: str) -> None:
+    """Audit C C7: the plan loses the edge to its case."""
+    graph.run("MATCH (:ReviewPlan {id:$plan})-[f:FOR_CASE]->() DELETE f", {"plan": plan_id})
+
+
+def _approval_state(graph, plan_id: str) -> dict[str, Any]:
+    return {
+        "status": graph.run(
+            "MATCH (p:ReviewPlan {id:$plan}) RETURN p.status AS status", {"plan": plan_id}
+        )[0]["status"],
+        "approvals": graph.run(
+            "MATCH (:ReviewPlan {id:$plan})-[a:APPROVED_BY]->() RETURN count(a) AS n",
+            {"plan": plan_id},
+        )[0]["n"],
+    }
+
+
+def test_a_refused_approval_leaves_no_approval_behind(seeded, ari, noor) -> None:
+    graph = seeded["graph"]
+    helpers.apply_correction(ari)
+    plan = helpers.staged_plan(ari)
+    _orphan_plan(graph, plan["plan_id"])
+    before = snapshot(graph)
+
+    with pytest.raises(GuardFailed) as refused:
+        graph.approve_plan(
+            plan_id=plan["plan_id"],
+            version=int(plan["version"]),
+            fingerprint=plan["execution_fingerprint"],
+            reviewer_id=domain.PERSON_NOOR,
+            approved_at="2026-10-16T00:00:00+00:00",
+            acknowledged_alternative=True,
+        )
+
+    assert refused.value.code == "APPROVAL_GUARD_FAILED"
+    assert snapshot(graph) == before
+    assert _approval_state(graph, plan["plan_id"]) == {"status": "AWAITING_REVIEW", "approvals": 0}
+
+
+def test_a_refused_rejection_changes_nothing(seeded, ari, noor) -> None:
+    graph = seeded["graph"]
+    helpers.apply_correction(ari)
+    plan = helpers.staged_plan(ari)
+    _orphan_plan(graph, plan["plan_id"])
+    before = snapshot(graph)
+
+    with pytest.raises(GuardFailed):
+        graph.reject_plan(
+            plan_id=plan["plan_id"],
+            reviewer_id=domain.PERSON_NOOR,
+            reason="wrong scope",
+            at="2026-10-16T00:00:00+00:00",
+        )
+
+    assert snapshot(graph) == before

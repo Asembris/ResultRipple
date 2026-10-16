@@ -984,19 +984,25 @@ class GraphClient:
         approved_at: str,
         acknowledged_alternative: bool,
     ) -> dict[str, Any]:
-        """Record approval of one exact plan version and execution fingerprint."""
+        """Record approval of one exact plan version and execution fingerprint.
+
+        Every guard, including exactly one owning case, precedes the first write:
+        a refused approval must not leave an approval behind.
+        """
         row = self.run_one(
             """
-            MATCH (p:ReviewPlan {id:$plan_id})-[:ASSIGNED_TO_REVIEWER]->(reviewer:Person {id:$reviewer_id})
+            MATCH (p:ReviewPlan {id:$plan_id})-[:ASSIGNED_TO_REVIEWER]->(reviewer:Person {id:$reviewer_id}),
+                  (p)-[:FOR_CASE]->(c:CorrectionCase)
             WHERE p.status = 'AWAITING_REVIEW' AND p.version = $version
               AND p.execution_fingerprint = $fingerprint
+            WITH p, reviewer, collect(DISTINCT c) AS cases
+            WHERE size(cases) = 1
+            WITH p, reviewer, head(cases) AS c
             SET p.status = 'APPROVED', p.approved_at = $approved_at,
                 p.approved_by = $reviewer_id,
-                p.acknowledged_alternative = $acknowledged_alternative
+                p.acknowledged_alternative = $acknowledged_alternative,
+                c.status = 'APPROVED'
             CREATE (p)-[:APPROVED_BY]->(reviewer)
-            WITH p
-            MATCH (p)-[:FOR_CASE]->(c:CorrectionCase)
-            SET c.status = 'APPROVED'
             RETURN p.id AS plan_id, p.version AS version
             """,
             {
@@ -1020,12 +1026,14 @@ class GraphClient:
     ) -> dict[str, Any]:
         row = self.run_one(
             """
-            MATCH (p:ReviewPlan {id:$plan_id})-[:ASSIGNED_TO_REVIEWER]->(:Person {id:$reviewer_id})
+            MATCH (p:ReviewPlan {id:$plan_id})-[:ASSIGNED_TO_REVIEWER]->(:Person {id:$reviewer_id}),
+                  (p)-[:FOR_CASE]->(c:CorrectionCase)
             WHERE p.status = 'AWAITING_REVIEW'
-            SET p.status = 'REJECTED', p.invalidation_reason = $reason, p.rejected_at = $at
-            WITH p
-            MATCH (p)-[:FOR_CASE]->(c:CorrectionCase)
-            SET c.status = 'NEEDS_CHANGES'
+            WITH p, collect(DISTINCT c) AS cases
+            WHERE size(cases) = 1
+            WITH p, head(cases) AS c
+            SET p.status = 'REJECTED', p.invalidation_reason = $reason, p.rejected_at = $at,
+                c.status = 'NEEDS_CHANGES'
             RETURN p.id AS plan_id
             """,
             {"plan_id": plan_id, "reviewer_id": reviewer_id, "reason": reason, "at": at},
