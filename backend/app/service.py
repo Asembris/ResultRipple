@@ -375,6 +375,11 @@ def refresh_review(
             raise WorkflowRefused("NO_PLAN", "latest plan could not be read", http_status=404)
         if prior["status"] == "ISSUED":
             raise WorkflowRefused("ALREADY_ISSUED", "this plan is already published")
+        if prior["status"] == "INVALIDATED":
+            raise WorkflowRefused(
+                "NEW_INVESTIGATION_REQUIRED",
+                "this plan was retired because the world moved; stage a new version",
+            )
 
         context = _context(graph, csv_path)
         assert_impact_covers_scope(graph, case_id, context.scope)
@@ -506,7 +511,7 @@ def approve_plan(
                 "the proposed alternative must be acknowledged before approval",
             )
         # Re-derive the fingerprint from the current world before recording it.
-        _assert_plan_fresh(plan, context)
+        _assert_plan_fresh_or_invalidate(graph, plan, context)
         try:
             graph.approve_plan(
                 plan_id=plan_id,
@@ -552,6 +557,38 @@ def _authority_witness(plan: dict[str, Any], context: CaseContext) -> dict[str, 
         "context_revision": context.context_revision,
         "plan_context_revision": plan.get("context_revision"),
     }
+
+
+# Refusals that mean the world moved past this plan. Each retires the plan and
+# reopens the case, so the case can be restaged instead of being stranded.
+INVALIDATING_REFUSALS = frozenset({"STALE_PLAN", "STALE_CONTEXT", "VERIFICATION_FAILED"})
+
+
+def _invalidate(graph: GraphClient, plan_id: str, refusal: WorkflowRefused) -> None:
+    """Record the refusal on the plan, reopen the case, then refuse.
+
+    Approval is never transferred: the restaged plan is a new version that needs
+    a fresh approval. Callers reach this only after the actor check, so only the
+    current reviewer's own attempt can retire a plan.
+    """
+    try:
+        graph.invalidate_plan(plan_id=plan_id, reason=refusal.code, at=_now())
+    except GuardFailed:
+        pass  # Already out of review: the refusal stands either way.
+    else:
+        refusal.context = {**refusal.context, "plan_invalidated": True, "recovery": "RESTAGE"}
+    raise refusal
+
+
+def _assert_plan_fresh_or_invalidate(
+    graph: GraphClient, plan: dict[str, Any], context: CaseContext
+) -> None:
+    try:
+        _assert_plan_fresh(plan, context)
+    except WorkflowRefused as refusal:
+        if refusal.code not in INVALIDATING_REFUSALS:
+            raise
+        _invalidate(graph, plan["plan_id"], refusal)
 
 
 def _assert_plan_fresh(plan: dict[str, Any], context: CaseContext) -> None:
@@ -636,7 +673,7 @@ def issue_release(
                 http_status=403,
                 context={"current_reviewer_id": context.authority.reviewer_id},
             )
-        _assert_plan_fresh(plan, context)
+        _assert_plan_fresh_or_invalidate(graph, plan, context)
         assert_impact_covers_scope(graph, plan["case_id"], context.scope)
 
         approved_hashes: dict[str, str] = json.loads(plan["candidates"])
@@ -669,10 +706,14 @@ def issue_release(
             expected_hashes=approved_hashes,
         )
         if not report.ok:
-            raise WorkflowRefused(
-                "VERIFICATION_FAILED",
-                "independent verification rejected the candidate bytes",
-                context={"failures": [c.name for c in report.failures][:10]},
+            _invalidate(
+                graph,
+                plan_id,
+                WorkflowRefused(
+                    "VERIFICATION_FAILED",
+                    "independent verification rejected the candidate bytes",
+                    context={"failures": [c.name for c in report.failures][:10]},
+                ),
             )
 
         sequence = 1 + len(graph.release_history())
@@ -738,6 +779,7 @@ def _status_refusal_code(status: str) -> str:
         "REJECTED": "PLAN_REJECTED",
         "SUPERSEDED": "PLAN_SUPERSEDED",
         "STALE_AUTHORITY": "AUTHORITY_CHANGED",
+        "INVALIDATED": "PLAN_INVALIDATED",
         "ISSUED": "ALREADY_ISSUED",
     }.get(status, "PLAN_STATE")
 

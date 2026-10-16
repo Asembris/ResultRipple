@@ -10,7 +10,13 @@ import {
   stageReview,
 } from "../../api";
 import type { PlanSummary } from "../../types";
-import { initialPublicationCase, latestPlanSummary, money } from "../../workflow";
+import {
+  initialPublicationCase,
+  latestPlanSummary,
+  money,
+  planRetired,
+  stagingAttempt,
+} from "../../workflow";
 import type { StageContext } from "./context";
 
 /**
@@ -261,7 +267,18 @@ function InitialPublication({
         review path as any later revision; it is not a correction.
       </p>
 
-      {!plan &&
+      {plan?.status === "INVALIDATED" && (
+        <div className="rr-alert-coral">
+          <div className="rr-alert-coral__label">Plan v{plan.version} invalidated</div>
+          <div className="rr-alert-coral__meta">
+            {plan.invalidation_reason}: the workspace changed after this plan was staged. Nothing
+            was issued and its approval does not carry over. Prepare a new version for a fresh
+            review.
+          </div>
+        </div>
+      )}
+
+      {(!plan || planRetired(plan)) &&
         (signedIn ? (
           <button
             type="button"
@@ -275,7 +292,7 @@ function InitialPublication({
                   disposition: "NO_CHANGE",
                   alternative_flag: false,
                   note: "",
-                  idempotency_key: `initial-publication-rev-${workspace.context_revision}`,
+                  idempotency_key: `initial-publication-rev-${workspace.context_revision}-${stagingAttempt(kase)}`,
                 }),
               )
             }
@@ -287,7 +304,7 @@ function InitialPublication({
           <p className="rr-copy">Sign in as the analyst above to prepare the first edition.</p>
         ))}
 
-      {plan && (
+      {plan && !planRetired(plan) && (
         <>
           <div className="rr-mono">
             plan v{plan.version} · {plan.status.replace(/_/g, " ").toLowerCase()} · reviewer{" "}

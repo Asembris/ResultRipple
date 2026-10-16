@@ -1035,6 +1035,30 @@ class GraphClient:
             {"plan_id": plan_id, "reason": reason},
         )
 
+    def invalidate_plan(self, *, plan_id: str, reason: str, at: str) -> dict[str, Any]:
+        """Retire a plan the world has moved past, and reopen its case for restaging.
+
+        One guarded write: the plan keeps its approval as invalid history, never
+        as permission, and the case returns to NEEDS_CHANGES so the analyst or
+        the agent can stage a new version for a fresh approval.
+        """
+        row = self.run_one(
+            """
+            MATCH (p:ReviewPlan {id:$plan_id})-[:FOR_CASE]->(c:CorrectionCase)
+            WHERE p.status IN ['APPROVED', 'AWAITING_REVIEW']
+              AND c.status IN ['APPROVED', 'AWAITING_REVIEW']
+            SET p.status = 'INVALIDATED', p.invalidation_reason = $reason,
+                p.invalidated_at = $at, c.status = 'NEEDS_CHANGES'
+            RETURN p.id AS plan_id, c.id AS case_id
+            """,
+            {"plan_id": plan_id, "reason": reason, "at": at},
+        )
+        if row is None:
+            raise GuardFailed(
+                "INVALIDATE_GUARD_FAILED", "the plan or its case is no longer in review"
+            )
+        return row
+
     # -- releases -------------------------------------------------------------
 
     def release(self, release_id: str) -> dict[str, Any] | None:

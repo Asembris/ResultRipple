@@ -264,6 +264,11 @@ is a draft that only the currently assigned reviewer can approve.
   intent, and the template version. **Execution identity** adds the candidate hashes, the
   current reviewer, the context revision, the plan version, and the prior release. A
   reviewer change therefore preserves the bytes while invalidating the approval.
+- **A stale plan is retired, not stranded.** When approval or release refuses a plan
+  because the evidence, sources or context moved (`STALE_PLAN`, `STALE_CONTEXT`) or the
+  independent verifier rejects its bytes (`VERIFICATION_FAILED`), one guarded write marks
+  it `INVALIDATED` with that reason and reopens the case, so a new version can be staged.
+  The old approval never carries over.
 - **Guarded mutations write everything or nothing.** Every existence and cardinality
   check precedes the first write clause, so a missing document or occurrence prevents a
   release or plan from being created rather than suppressing its return value. A filter
