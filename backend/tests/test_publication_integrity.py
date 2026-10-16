@@ -268,3 +268,26 @@ def test_a_traversal_gap_after_approval_blocks_the_release(seeded, ari, noor):
     assert refused.json()["code"] == "IMPACT_SCOPE_MISMATCH"
     _nothing_new_is_current(ari, seeded)
 
+
+
+# -- a withheld comparison is never staged -------------------------------------
+
+
+def test_a_withheld_comparison_is_never_staged(seeded, ari):
+    """Audit C U3: South below the minimum sample would reach a reviewer unissuable."""
+    helpers.apply_correction(ari)
+    seeded["graph"].run(
+        """
+        MATCH (b:Batch {id:'B05'})-[a:ASSIGNED_TO]->(:Lane), (north:Lane {id:$north})
+        DELETE a
+        CREATE (b)-[:ASSIGNED_TO]->(north)
+        """,
+        {"north": domain.LANE_NORTH},
+    )
+    assert helpers.workspace(ari)["comparison"]["relation"] == domain.RELATION_WITHHELD
+
+    refused = helpers.stage(ari, key="withheld")
+
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["code"] == "RESULT_WITHHELD"
+    _nothing_new_is_current(ari, seeded)

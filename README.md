@@ -253,7 +253,8 @@ is a draft that only the currently assigned reviewer can approve.
   difference rather than on rounded text.
 - **The factual grammar is finite**: lower cost, higher cost, equal mean cost, or an
   explicit withheld comparison with a reason. A card is rendered whole from a closed
-  template; no free-text span is ever patched.
+  template; no free-text span is ever patched. A withheld comparison is shown in the
+  workspace but held at staging (`RESULT_WITHHELD`), so it never reaches a reviewer.
 - **Scope is enumerated by the engine**, from a document-rooted inventory query. A caller
   cannot silently exclude the second report. The case's impact traversal must reach
   exactly the same cards, every card must be bound to the comparison it states, and a

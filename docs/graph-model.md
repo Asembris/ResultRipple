@@ -123,6 +123,7 @@ hide a duplicate edge. The engine checks exact cardinality and holds otherwise:
 | Decision block with no recorded basis | `MISSING_DECISION_BASIS` |
 | The case's impact traversal and the registered inventory disagree | `IMPACT_SCOPE_MISMATCH` |
 | More than one current-release pointer | `AMBIGUOUS_CURRENT_RELEASE` |
+| A comparison withheld below its minimum sample or display resolution, at staging | `RESULT_WITHHELD` |
 
 "Unknown" is not "false". It narrows what may be done; it never licenses reusing
 a stale supported statement.

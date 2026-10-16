@@ -658,9 +658,17 @@ def assert_publishable(context: CaseContext) -> None:
     Each card is rendered from the one comparison in context, so every
     registered occurrence must be bound to that comparison. A decision block
     states its basis, so the basis must exist and be a claim placed in a
-    document that carries the decision block. Called before any bytes are
+    document that carries the decision block. A withheld result is never
+    published as a card. Called before any bytes are
     rendered, so stage, refresh and release all hold the same way.
     """
+    if context.scope.occurrences and context.result.relation == domain.RELATION_WITHHELD:
+        # The independent verifier has no withheld grammar, so a withheld card
+        # could never be issued; it must not reach a reviewer either.
+        raise EngineHold(
+            "RESULT_WITHHELD",
+            f"the comparison is withheld ({context.result.hold_reason}); nothing to publish",
+        )
     for occ in context.scope.occurrences:
         if occ.comparison_id != context.definition.comparison_id:
             raise EngineHold(
