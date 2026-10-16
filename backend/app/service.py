@@ -886,7 +886,7 @@ def reassign_reviewer(
         try:
             changed = graph.reassign_reviewer(
                 workspace_id=domain.WORKSPACE_ID,
-                team_id=domain.TEAM_ID,
+                decision_id=domain.DECISION_ID,
                 from_person_id=from_person_id,
                 to_person_id=to_person_id,
                 expected_revision=expected_revision,

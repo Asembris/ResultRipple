@@ -433,7 +433,7 @@ def test_a_mutation_landing_inside_the_staging_lock_cannot_stage(seeded, monkeyp
             # takes the same non-reentrant lock this call already holds.
             changed = graph_client.reassign_reviewer(
                 workspace_id=domain.WORKSPACE_ID,
-                team_id=domain.TEAM_ID,
+                decision_id=domain.DECISION_ID,
                 from_person_id=domain.PERSON_NOOR,
                 to_person_id=domain.PERSON_SAM,
                 expected_revision=int(

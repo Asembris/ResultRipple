@@ -165,18 +165,25 @@ transaction, and it is not described as one.
 ```cypher
 MATCH (w:Workspace {id:$workspace_id}),
       (next:Person {id:$to_person_id}),
-      (team:Team {id:$team_id})-[old:REVIEWED_BY]->(previous:Person {id:$from_person_id})
+      (decision:Decision {id:$decision_id})-[:OWNED_BY]->(team:Team),
+      (team)-[old:REVIEWED_BY]->(holder:Person)
 WHERE w.context_revision = $expected_revision AND next.review_capable = true
-WITH w, team, previous, next, collect(old) AS authority
-WHERE size(authority) = 1
-UNWIND authority AS stale
+WITH w, next, collect(DISTINCT team) AS teams, collect(DISTINCT old) AS authority,
+     collect(DISTINCT holder.id) AS holders
+WHERE size(teams) = 1 AND size(authority) = 1
+  AND head(holders) = $from_person_id
+WITH w, next, head(teams) AS team, head(authority) AS stale,
+     head(holders) AS previous_id
 DELETE stale
-WITH DISTINCT w, team, previous, next
 CREATE (team)-[:REVIEWED_BY {assigned_by:$operator_id, source:$source, assigned_at:$at}]->(next)
 SET w.context_revision = w.context_revision + 1
 RETURN w.context_revision AS context_revision,
-       previous.id AS previous_reviewer_id, next.id AS current_reviewer_id
+       previous_id AS previous_reviewer_id, next.id AS current_reviewer_id
 ```
+
+The team is the one that owns the decision, resolved through its `OWNED_BY`
+edge rather than named by the caller, and it must hold exactly one
+`REVIEWED_BY` edge, to the expected person, before anything is written.
 
 No evidence or document content changes. A previously valid approval becomes
 unusable (`AUTHORITY_CHANGED`) and a fresh plan version plus fresh approval are

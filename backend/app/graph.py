@@ -1244,7 +1244,7 @@ class GraphClient:
         self,
         *,
         workspace_id: str,
-        team_id: str,
+        decision_id: str,
         from_person_id: str,
         to_person_id: str,
         expected_revision: int,
@@ -1252,26 +1252,34 @@ class GraphClient:
         source: str,
         at: str,
     ) -> dict[str, Any]:
-        """Replace exactly one REVIEWED_BY edge. Operator capability only."""
+        """Replace the one REVIEWED_BY edge of the team that owns the decision.
+
+        The team is resolved through the decision's OWNED_BY edge, never named
+        by the caller. Exactly one owning team and exactly one current review
+        edge, held by the expected person, must exist before anything is written.
+        """
         row = self.run_one(
             """
             MATCH (w:Workspace {id:$workspace_id}),
                   (next:Person {id:$to_person_id}),
-                  (team:Team {id:$team_id})-[old:REVIEWED_BY]->(previous:Person {id:$from_person_id})
+                  (decision:Decision {id:$decision_id})-[:OWNED_BY]->(team:Team),
+                  (team)-[old:REVIEWED_BY]->(holder:Person)
             WHERE w.context_revision = $expected_revision AND next.review_capable = true
-            WITH w, team, previous, next, collect(old) AS authority
-            WHERE size(authority) = 1
-            UNWIND authority AS stale
+            WITH w, next, collect(DISTINCT team) AS teams, collect(DISTINCT old) AS authority,
+                 collect(DISTINCT holder.id) AS holders
+            WHERE size(teams) = 1 AND size(authority) = 1
+              AND head(holders) = $from_person_id
+            WITH w, next, head(teams) AS team, head(authority) AS stale,
+                 head(holders) AS previous_id
             DELETE stale
-            WITH DISTINCT w, team, previous, next
             CREATE (team)-[:REVIEWED_BY {assigned_by:$operator_id, source:$source, assigned_at:$at}]->(next)
             SET w.context_revision = w.context_revision + 1
             RETURN w.context_revision AS context_revision,
-                   previous.id AS previous_reviewer_id, next.id AS current_reviewer_id
+                   previous_id AS previous_reviewer_id, next.id AS current_reviewer_id
             """,
             {
                 "workspace_id": workspace_id,
-                "team_id": team_id,
+                "decision_id": decision_id,
                 "from_person_id": from_person_id,
                 "to_person_id": to_person_id,
                 "expected_revision": expected_revision,
@@ -1283,7 +1291,8 @@ class GraphClient:
         if row is None:
             raise GuardFailed(
                 "REASSIGN_GUARD_FAILED",
-                "expected revision, current authority edge, or target reviewer did not hold",
+                "expected revision, the decision's one owning team, its one current review "
+                "edge, or the target reviewer did not hold",
             )
         return row
 
