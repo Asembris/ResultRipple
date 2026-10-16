@@ -189,3 +189,23 @@ def test_neither_the_memo_owner_nor_the_operator_can_stage(seeded, ari, sam, ope
 
     case = next(c for c in helpers.workspace(ari)["cases"] if c["case_id"] == domain.CASE_ID)
     assert case["plans"] == []
+
+
+# -- an operation id never reconciles across plans -----------------------------
+
+
+def test_another_plans_operation_id_never_issues_an_unapproved_plan(seeded, ari, noor):
+    """Audit B weakness 3c: V1's operation id on an AWAITING_REVIEW plan returned 200."""
+    helpers.apply_correction(ari)
+    plan = helpers.staged_plan(ari)
+    version_one_operation = seeded["version_one"]["operation_id"]
+
+    for http in (noor, ari):
+        refused = helpers.release(http, plan["plan_id"], version_one_operation)
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["code"] == "OPERATION_ID_CONFLICT"
+
+    assert helpers.workspace(ari)["current_release"]["release_id"] == (
+        seeded["version_one"]["release_id"]
+    )
+    assert seeded["graph"].plan(plan["plan_id"])["status"] == "AWAITING_REVIEW"

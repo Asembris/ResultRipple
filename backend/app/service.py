@@ -599,9 +599,18 @@ def issue_release(
             raise WorkflowRefused("PLAN_UNKNOWN", plan_id, http_status=404)
 
         # Reconcile a previously committed operation before judging freshness.
-        committed = graph.release_for_plan(plan_id) or graph.release_by_operation(operation_id)
+        # An operation id reconciles only to a release of this very plan: another
+        # plan's release is never reported as this plan being issued.
+        committed = graph.release_for_plan(plan_id)
         if committed is not None:
             return {"release": committed, "idempotent": True}
+        by_operation = graph.release_by_operation(operation_id)
+        if by_operation is not None:
+            raise WorkflowRefused(
+                "OPERATION_ID_CONFLICT",
+                "this operation id already issued a different plan",
+                context={"operation_id": operation_id},
+            )
 
         context = _context(graph, csv_path)
 
