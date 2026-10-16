@@ -91,11 +91,14 @@ real graph read  →  model turn 1  →  inspect_impact
                  →  model turn 2  →  stage_review  |  request_clarification
 ```
 
-- At most **4 model turns**, **6 tool calls**, **4096 completion tokens** including any
-  reported reasoning, and **25 seconds** from request through persisted candidates.
-- Every turn uses `tool_choice: "required"`. Measured against this endpoint, leaving it on
-  `auto` cost several hundred extra tokens per turn restating retrieved facts in prose
-  that no one reads, and sometimes produced an answer with no action at all.
+- At most **4 model turns**, **6 tool calls** and **25 seconds** from request through
+  persisted candidates per job, and **4096 completion tokens**, including any reported
+  reasoning, per model call.
+- Every turn must call a tool. Normally that is `tool_choice: "required"`. Measured
+  against this endpoint, leaving it on `auto` cost several hundred extra tokens per turn
+  restating retrieved facts in prose that no one reads, and sometimes produced an answer
+  with no action at all. When the loop forces a specific follow-up, it names that
+  function in `tool_choice` instead.
 - Once a tool has established that the intent is unresolved, the next turn is constrained
   to `request_clarification`. Otherwise a run can spend its whole budget re-attempting a
   staging the tool layer has already refused.
@@ -133,8 +136,9 @@ or returned — only its token count, and the length of any prose the model emit
 
 ## Model configuration
 
-Set in the environment only; the repository-root `.env` or `backend/.env` is loaded,
-whichever exists, and explicit environment variables win over both.
+Set in the environment only. The repository-root `.env` and `backend/.env` are both
+loaded, `backend/.env` wins over the root file, and explicit environment variables win
+over both.
 
 | Variable | Default |
 | --- | --- |
@@ -142,6 +146,7 @@ whichever exists, and explicit environment variables win over both.
 | `NVIDIA_API_BASE_URL` | `https://integrate.api.nvidia.com/v1` |
 | `NVIDIA_MODEL` | `nvidia/nemotron-3-super-120b-a12b` |
 | `NVIDIA_REASONING` | `false` |
+| `NVIDIA_TEMPERATURE` / `NVIDIA_TOP_P` | `1.0` / `0.95` |
 | `AGENT_MAX_MODEL_TURNS` / `AGENT_MAX_TOOL_CALLS` | `4` / `6` |
 | `AGENT_MAX_COMPLETION_TOKENS` | `4096` |
 | `AGENT_DEADLINE_SECONDS` / `AGENT_REQUEST_TIMEOUT_SECONDS` | `25` / `24` |
@@ -152,8 +157,10 @@ reports the credential.
 
 ### Why reasoning is off
 
-The hosted endpoint honours `chat_template_kwargs: {"thinking": false}`: reasoning tokens
-drop to zero. A top-level `reasoning_effort` is accepted but changes nothing, so the
+With `NVIDIA_REASONING=false` every request carries
+`chat_template_kwargs: {"thinking": false}`, and the hosted endpoint honours it: reasoning
+tokens drop to zero. With `true` the request carries no reasoning control at all, so the
+endpoint's own default applies. A top-level `reasoning_effort` is accepted but changes nothing, so the
 control is effectively binary. With reasoning on, two-turn jobs measured 22–52 seconds
 against the frozen 25-second budget while reaching the same typed intent. Off is therefore
 the frozen configuration. One alternative NVIDIA model was not needed.
@@ -180,6 +187,15 @@ Reproduce it with:
 ```bash
 cd backend && .venv/Scripts/python -m pytest tests/test_agent_live.py -q -s -m readiness
 ```
+
+### The deployed run
+
+The run recorded in [evidence](evidence/README.md), on 2026-10-16 against the production
+stack, took 2 model turns and 2 tool calls (`inspect_impact`, then `stage_review`).
+It ran for 6,365 ms from start to the persisted plan and used 5,784 prompt, 233
+completion and 6,017 total tokens, with 0 reasoning tokens. The `usage` on each model
+event in `GET /jobs/{job_id}` is the job's running total up to that turn, not that turn's
+own count.
 
 ## Honest failure
 
