@@ -1,149 +1,202 @@
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/hero-light.svg">
+  <img src="docs/assets/hero-static.svg" width="100%" alt="ResultRipple: batches B09 to B11 move from South to Pilot, the shared finding reverses from 40 cents cheaper to 40 cents more expensive, both reports and the South lane expansion proposal are updated, review authority moves from Noor to Sam, Noor's release is refused with AUTHORITY_CHANGED, and Sam approves Version 2.">
+</picture>
+
 # ResultRipple
 
-When evidence behind a recommendation changes, ResultRipple finds every linked report,
-prepares the responsible person's review, and issues corrected editions after approval.
+**When the evidence behind a published finding changes, ResultRipple corrects every
+registered use, returns the decision that relied on it, and lets only the current
+reviewer issue the new editions.**
 
-An analyst registers a reusable, approved finding from a cost comparison while writing an
-operations review, reuses the same finding in an executive memo, and explicitly connects
-it to a proposed business decision. A later evidence correction then becomes a complete
-correction-and-review case — corrected editions, a decision returned to its owner, and a
-release that only the currently assigned reviewer can authorize — instead of a warning
-someone has to chase across documents.
+[![Live demo](https://img.shields.io/badge/Live_demo-open_the_workspace-E8B064?style=for-the-badge)](https://52-58-115-104.sslip.io)
+[![Watch demo](https://img.shields.io/badge/Watch_demo-video_coming_soon-6B6459?style=for-the-badge)](#demo-video)
+[![Graph Hacks 2026](https://img.shields.io/badge/Graph_Hacks_2026-Track_3_%C2%B7_Company_Brain-9CCBAE?style=for-the-badge)](https://www.wemakedevs.org/hackathons/falkordb)
 
-Built for [WeMakeDevs × FalkorDB Graph Hacks 2026](https://www.wemakedevs.org/hackathons/falkordb),
-**Track 3 — Company Brain**. FalkorDB is the authoritative connected context: the live
-graph determines which published work a correction affects, whose decision it touches, and
-who may approve the release.
+[![FalkorDB 6.0.2](https://img.shields.io/badge/FalkorDB-6.0.2-E3876A?style=flat)](docs/graph-model.md)
+[![NVIDIA Nemotron](https://img.shields.io/badge/NVIDIA-Nemotron_3_Super_120B-76B900?style=flat&logo=nvidia&logoColor=white)](docs/agent.md)
+[![CI](https://github.com/Asembris/ResultRipple/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Asembris/ResultRipple/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-948B7D?style=flat)](LICENSE)
 
-## Stack
+</div>
 
-| Part | Choice |
+> **WeMakeDevs × FalkorDB Graph Hacks 2026, Track 3: Company Brain.** A small
+> operations-analytics team publishes one cost finding in two reports and relies on it for
+> a pending proposal. FalkorDB holds who owns what, which finding each report states,
+> what the proposal rests on, and who may review it. Correct the evidence, or move the
+> review authority, and the next answer about what the reports say and who may release
+> them is read from the changed graph.
+
+## What to look at in 2 minutes
+
+Open **<https://52-58-115-104.sslip.io>**. Without signing in you get the read-only view
+of a finished case: every read works and every change is refused by the server. The top
+bar steps through the story, and the graph on the left is drawn only from live API
+responses.
+
+| Step | Look for |
 | --- | --- |
-| Frontend | React 18, TypeScript, Vite, plain CSS |
-| API | Python 3.12, FastAPI, Pydantic, Uvicorn (single worker) |
-| Graph | FalkorDB 6.0.2, official `falkordb` Python client |
-| Model | `nvidia/nemotron-3-super-120b-a12b`, NVIDIA-hosted, through the OpenAI-compatible client |
-| Artifacts | Jinja2 with autoescaping, standard-library exact arithmetic |
-| Infrastructure | Docker Compose, one named volume with AOF persistence |
+| 1 · Desk | One registered finding, its two published uses, and the proposal that records it as its basis. |
+| 2 · Correction | Dispatch note DX-2026-0914 moves B09–B11 from South to Pilot. South goes from $3.60 over 7 batches to $4.40 over 4, and North stays at $4.00. The difference stays 40¢, but its direction reverses. |
+| 3 · Investigation | The recorded agent run: 2 model turns, 2 tool calls, 6.4 s, `nvidia/nemotron-3-super-120b-a12b`. The request to *keep South as the cheaper option* is shown as contradicted. |
+| 4 · Review | The package the current reviewer approved: both corrected cards, the proposal going from *Proposed* to *Returned for review*, and the content hash. |
+| 5 · Authority | The `REVIEWED_BY` edge moved from Noor to Sam. |
+| 6 · Fresh approval | Noor's approved plan v1 was refused at release with `AUTHORITY_CHANGED`. Plan v2 has identical bytes and a new reviewer, and Sam approved it. |
+| 7 · Editions | Version 2 of both reports, with hashes, the release receipt and Version 1 still readable. |
 
-## Local setup
+Then open the receipt it links to,
+[`/api/releases/rel-002-44c0bbfc/receipt`](https://52-58-115-104.sslip.io/api/releases/rel-002-44c0bbfc/receipt):
+45 independent checks on the bytes that were actually issued.
 
-Requirements: Docker, Python 3.12, Node.js 20+.
+## The story, as deployed
 
-### 1. Start FalkorDB
+The live workspace holds this exact run, recorded in [docs/evidence](docs/evidence/README.md):
 
-```bash
-cp .env.example .env
-docker compose up -d
+1. **Version 1 is published.** The Operations Cost Review says *"South costs $0.40 less per
+   parcel than North."* The South Expansion Memo says *"South is 40 cents cheaper per parcel
+   than North."* The South lane expansion proposal records that finding as its basis.
+   Operations Review owns the proposal, and the team's `REVIEWED_BY` edge points to Noor
+   Haddad.
+2. **Ari Mensah (analyst) confirms dispatch note DX-2026-0914.** One guarded write moves
+   B09, B10 and B11 from South to Pilot. The raw CSV and every cost stay byte-identical.
+   North stays at 1600/4 = 400¢, and South moves from 2520/7 = 360¢ to 1760/4 = 440¢.
+3. **Ari asks the agent:** *"Update the reports, but keep South as the cheaper option in
+   the rollout memo."* The model calls `inspect_impact` and then `stage_review`. It reads the
+   request as asking to keep the cost claim, which the evidence contradicts, so it stages
+   the explicit alternative: correct both registered uses and return the proposal for
+   review. The engine renders both candidate editions and assigns the review to Noor,
+   because the graph names her.
+4. **Noor approves plan v1.** The approval binds to one plan version and one execution
+   fingerprint, which includes the current reviewer.
+5. **The operator moves review authority from Noor to Sam Oyelaran.** No evidence and no
+   candidate byte changes. Only the team's `REVIEWED_BY` edge does.
+6. **Noor tries to issue plan v1, and the server refuses with `AUTHORITY_CHANGED`.**
+   Release re-reads the graph, finds that Noor no longer holds the review, and writes
+   nothing. Plan v1 is recorded as superseded, with `refused_action: RELEASE`.
+7. **The review is refreshed for Sam.** Plan v2 is re-staged deterministically, with no
+   model call. Its candidate hashes are identical to v1's, and its fingerprint differs.
+8. **Sam approves plan v2 and issues Version 2.** The new editions say *"South costs $0.40
+   more per parcel than North"* and *"South is 40 cents more expensive per parcel than
+   North."* The proposal is *returned for review*. Version 1 stays readable as superseded.
+
+Sam owns the memo and also becomes its reviewer. That is allowed only because the team's
+`REVIEWED_BY` edge now names Sam: document ownership grants no review authority, and
+before the change Sam could not approve. The product does not enforce separation of
+duties (see [Limitations](#limitations)).
+
+Sign in yourself and try the refusals. Ari's passcode does not authenticate anyone as
+Noor. A reviewer who is not the current one is refused. Telling the agent it already has
+permission changes nothing, because no tool exists through which it could act on that.
+
+## The graph is the authority
+
+Change an edge and the system changes who may release and what the report says.
+Memberships (`Batch-[:ASSIGNED_TO]->Lane`), the finding's binding to its comparison, its
+registered uses, the decision's recorded basis and the team's current reviewer are all
+graph edges. Every impact, scope and authority answer is a fresh parameterized query
+against FalkorDB, with no cached list and no reviewer name in application code. With
+FalkorDB unavailable, new corrections, reviews and releases stop.
+
+Two precise points:
+
+- **The publication scope comes from the graph's document inventory**, meaning every
+  registered occurrence in every document, never from a list supplied by a caller. The
+  case's impact traversal, from the corrected lanes through comparison, claim and
+  occurrence to each document, is a **cross-check**. Staging, refresh and release hold
+  with `IMPACT_SCOPE_MISMATCH` unless both name exactly the same occurrences, and an
+  empty traversal is a hold, never "no dependencies".
+- **The decision is a fixed workspace primitive.** Its status changes at release only
+  through its recorded `(Decision)-[:BASED_ON]->(Claim)` path to a claim inside the
+  released scope.
+
+```mermaid
+flowchart LR
+  B[Batch] -- ASSIGNED_TO --> L[Lane]
+  C[Comparison] -- LEFT_SIDE / RIGHT_SIDE --> L
+  F[Claim · shared finding] -- BASED_ON --> C
+  O[Occurrence] -- OF_CLAIM --> F
+  O -- IN_DOCUMENT --> D[Document]
+  X[Decision] -- BASED_ON --> F
+  X -- OWNED_BY --> T[Team]
+  T -- REVIEWED_BY --> P[Person]
+  R[Release] -- FROM_PLAN --> RP[ReviewPlan]
+  RP -- ASSIGNED_TO_REVIEWER --> P
 ```
 
-### 2. Seed the demo workspace
+The full schema, cardinality holds and FalkorDB 6.0.2 notes are in
+[docs/graph-model.md](docs/graph-model.md). The fixed, parameterized Cypher, including
+every guarded write, is in [docs/queries.md](docs/queries.md).
 
-```bash
-cd backend
-python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements-dev.txt   # Linux/macOS: .venv/bin/python
-.venv/Scripts/python -m scripts.seed_demo --reset
-```
+## The agent
 
-Seeding writes only primitive facts — the 15-batch dataset, three lanes, one comparison,
-one shared finding registered in two reports, one proposal and its reviewer, and the
-dispatch correction note. It then issues **Version 1 by running the real staging,
-approval, verification and release path once**, with its approvals labelled demo setup.
-No corrected file, affected-document list, or reviewer answer is seeded.
+The agent reads the request into a typed intent and chooses to act or to ask; the engine
+owns every figure. One NVIDIA-hosted model (`nvidia/nemotron-3-super-120b-a12b`) gets
+four typed tools: `get_case_context`, `inspect_impact`, `stage_review` and
+`request_clarification`. It decides what the request asked to keep and which permitted
+disposition to propose, or it asks one focused question when the request is ambiguous.
+It never computes a number, writes a card sentence, narrows the scope, approves or
+releases. Its principal is not a `Person` in the graph, so every authority check fails for
+it by construction.
 
-**Authoring-start workspace (tests and CI).** `--fresh` writes the same primitive facts
-into an *empty* graph, but with no claim, no occurrence, no finding block and no decision
-basis, and no edition. It refuses any graph that already holds nodes, so it never clears a
-workspace in use:
+Each job is bounded to 4 model turns, 6 tool calls and 25 seconds, and each model call to
+4096 completion tokens.
+The deployed run used 2 turns, 2 tool calls, 6,017 tokens and 6.4 s. With no credential
+configured, the app offers a labelled manual workflow that runs the same deterministic
+staging, and does not pass it off as an agent run. Details are in
+[docs/agent.md](docs/agent.md).
 
-```bash
-FALKORDB_GRAPH=rr_authoring .venv/Scripts/python -m scripts.seed_demo --fresh
-```
+## Evidence
 
-The analyst then registers the finding, places it in both reports and records the basis
-through the UI, and the first edition is issued from the **Initial publication** case
-through the same staging, approval and release path as any revision. One API process
-serves one graph; the backend tests and the `e2e-authoring` CI job use this seed on their
-own graph. The deployed workspace's starting state, "demo setup" or "authoring start",
-will come from the operator reset planned in G3.
+[docs/evidence](docs/evidence/README.md) holds byte copies of what the live API served for
+the run above: the agent job, both plans, both release receipts, all four issued editions
+with a `SHA256SUMS` file, and signed-out screenshots of every step.
 
-### 3. Start the API
+| | Release 1 | Release 2 |
+| --- | --- | --- |
+| Operations Cost Review | `5a670a69…cc26` | `626caedd…0468` |
+| South Expansion Memo | `93c8b9db…5a9c` | `ea0a575c…33e0` |
+| Raw CSV `backend/data/batches.csv` | `9f32c902…b6aa` | `9f32c902…b6aa` |
+| Issued by | Noor (demo setup) | Sam, after Noor's `AUTHORITY_CHANGED` refusal |
 
-```bash
-.venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
-```
+## How correctness is enforced
 
-Signing in as a demo identity needs a server-side passcode. With `DEMO_PASSCODES`
-unset, the API generates throwaway ones for this process and logs them at startup:
-
-```
-DEMO_PASSCODES is unset; generated development passcodes for this process only:
-person-ari=... person-noor=... person-sam=... person-operator=...
-```
-
-Copy them from that log when you sign in. They are never committed, never shipped
-in the frontend bundle, and never returned by any endpoint.
-
-The agent needs an NVIDIA credential. Put it in the repository-root `.env` (which is
-Git-ignored) or in the environment; either location is loaded whichever directory you
-start Uvicorn from, and real environment variables win over both:
-
-```
-NVIDIA_API_KEY=...
-NVIDIA_API_BASE_URL=https://integrate.api.nvidia.com/v1
-NVIDIA_MODEL=nvidia/nemotron-3-super-120b-a12b
-```
-
-Without it the API still runs: `GET /ready` reports `agent.configured: false`, agent runs
-are refused with `MODEL_NOT_CONFIGURED`, and the app offers the labelled manual
-correction workflow instead.
-
-### 4. Start the frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open <http://localhost:5173>. The dev server proxies `/api` to the backend so the
-HttpOnly demo session cookie stays first-party.
-
-## Walking through the case
-
-1. Sign in as **Ari Mensah** (analyst) in the role bar, pasting that identity's
-   passcode from the API log. Without a session you are an observer: every read
-   works and every mutation returns 401.
-2. Read the dispatch note `DX-2026-0914` and click **Confirm correction**. Three effective
-   memberships move from South to Pilot; the raw CSV and every recorded cost stay
-   unchanged. Both published cards are immediately marked out of date — by direction, not
-   by magnitude, since the effect stays 40 cents while its meaning reverses.
-3. Under **Ask the agent**, send the request in your own words — the composer starts
-   with *"Update the reports, but keep South as the cheaper option in the rollout memo."*
-   The run's real tool events appear as they complete. The agent investigates through the
-   graph, recognises that the requested cost endorsement is contradicted, and stages an
-   explicit alternative: correct both registered uses and return the proposal for review.
-   The engine enumerates every registered occurrence itself, renders both candidate
-   editions, and assigns the review to whoever the graph currently names — not to a
-   document owner. Ask it something ambiguous instead — *"Keep South in the memo; send
-   it."* — and it records one focused question rather than guessing.
-4. Sign in as **Noor Haddad** with her own passcode, open both candidate previews,
-   acknowledge the proposed alternative, and click **Approve revision**. Approval binds to
-   one exact plan version and execution fingerprint.
-5. Click **Issue editions**. The server re-reads the graph, regenerates the bytes, requires
-   exact agreement with the approved hashes, audits them independently, writes the package,
-   and moves one current-release pointer.
-
-Try it as the wrong person: Sam owns the memo and holds a review-capable identity, and
-still cannot approve the case. Try it with the wrong credential: Ari's passcode does not
-authenticate anyone as Noor. Try telling the agent it already has permission — there is no
-tool through which it could act on that.
+- **Arithmetic** uses integer cents and exact `Fraction` means. Rounding happens only for
+  display, under a pinned half-up rule, and direction is decided on the exact signed
+  difference.
+- **The factual grammar is finite:** lower cost, higher cost, equal mean cost, or an
+  explicit withheld comparison with a reason. A card is rendered whole from a closed
+  template, and no free-text span is ever patched. A withheld comparison is held at staging
+  (`RESULT_WITHHELD`).
+- **Scope is enumerated by the engine** from the document-rooted inventory and must equal
+  the impact traversal. Every card must be bound to the comparison it states, and a
+  decision block must have a recorded basis placed beside it. Otherwise nothing is
+  rendered.
+- **Candidate-content identity** covers measurements, memberships, the evidence binding,
+  every source block and occurrence, the typed disposition, the bound intent and the
+  template version. **Execution identity** adds the candidate hashes, the current reviewer,
+  the context revision, the plan version and the prior release. A reviewer change
+  therefore preserves the bytes and invalidates the approval.
+- **A stale plan is retired, not stranded.** `STALE_PLAN`, `STALE_CONTEXT` or
+  `VERIFICATION_FAILED` marks it invalidated with its reason and reopens the case for a
+  new version. An `AUTHORITY_CHANGED` refusal is recorded on the plan, and the refreshed
+  version supersedes it. An old approval never carries over.
+- **Guarded mutations write everything or nothing.** Every existence and cardinality check
+  precedes the first write clause.
+- **Sessions need a credential.** Passcodes are held server-side, compared in constant
+  time, never served to the browser, and resolved to a role in the graph. Sessions are
+  signed, expiring, `HttpOnly` cookies.
+- **An independent verifier** (`backend/app/verify_artifacts.py`) re-reads the immutable
+  CSV and the membership snapshot, re-derives the arithmetic, re-states the expected
+  sentences from its own copy of the grammar, and parses the actual generated bytes. It
+  imports nothing from the engine, the renderer or the templates.
 
 ## The frozen dataset
 
-15 synthetic batches of equal analytical weight, integer cents per parcel, in
-`backend/data/batches.csv`:
+There are 15 synthetic batches of equal analytical weight, with integer cents per parcel,
+in `backend/data/batches.csv`:
 
 | Batches | Initial lane | Cost (cents) | Corrected lane |
 | --- | --- | --- | --- |
@@ -152,19 +205,57 @@ tool through which it could act on that.
 | B09–B11 | South | 240, 250, 270 | **Pilot** |
 | B12–B15 | Pilot | 250, 260, 240, 250 | Pilot |
 
-North stays 1600/4 = 400 cents. South moves from 2520/7 = 360 to 1760/4 = 440. North minus
-South therefore moves from **+40 to −40 cents**, and the published claim changes from
-"South costs $0.40 less per parcel than North" to "South costs $0.40 more per parcel than
-North" (dollars, operations review) and from "40 cents cheaper" to "40 cents more
-expensive" (cents, memo). The CSV bytes and all 15 costs are untouched; exactly three
-effective membership relationships change.
+North minus South moves from **+40 to −40 cents**. The CSV bytes and all 15 costs are
+untouched; exactly three effective membership relationships change. The four-batch
+minimum is a declared demo policy, not a significance test, and this is a descriptive
+comparison, not a causal savings estimate.
 
-The four-batch minimum is a declared demo policy, not evidence of statistical
-significance. This is a descriptive comparison, not a causal savings estimate.
+## Quickstart
 
-## Environment variables
+Requirements: Docker, Python 3.12, Node.js 20+.
 
-Copy `.env.example` to `.env`; it contains no secrets.
+```bash
+cp .env.example .env
+docker compose up -d
+```
+
+```bash
+cd backend
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements-dev.txt   # Linux/macOS: .venv/bin/python
+.venv/Scripts/python -m scripts.seed_demo --reset
+.venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
+```
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open <http://localhost:5173>. The dev server proxies `/api` to the backend, so the
+session cookie stays first-party.
+
+- **Seeding** writes only primitive facts: the 15-batch dataset, three lanes, one
+  comparison, one shared finding registered in two reports, one proposal and its
+  reviewer, and the dispatch correction note. It then issues Version 1 by running the real
+  staging, approval, verification and release path once, labelled demo setup. No
+  corrected file, affected-document list or reviewer answer is seeded.
+- **Authoring start.** `--fresh` writes the same primitives into an empty graph, with no
+  finding, occurrence, decision basis or edition. The analyst then registers the finding,
+  places it in both reports and records the basis through the UI, and issues the first
+  edition through the same release path. It refuses any graph that already holds nodes:
+  `FALKORDB_GRAPH=rr_authoring .venv/Scripts/python -m scripts.seed_demo --fresh`.
+- **Passcodes.** With `DEMO_PASSCODES` unset, the API generates throwaway passcodes for
+  this process and logs them at startup. Copy them from that log to sign in. They are
+  never committed, shipped in the frontend bundle or returned by an endpoint.
+- **The agent** needs `NVIDIA_API_KEY`. The repository-root `.env` and `backend/.env` are
+  both loaded, `backend/.env` wins over the root file, and real environment variables win
+  over both. Without a key, `GET /ready` reports `agent.configured: false`, agent runs are
+  refused with `MODEL_NOT_CONFIGURED`, and the app offers the labelled manual workflow.
+
+<details>
+<summary>Environment variables</summary>
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -176,118 +267,84 @@ Copy `.env.example` to `.env`; it contains no secrets.
 | `ARTIFACT_ROOT` | `backend/runtime/artifacts` | Staged candidates and immutable issued editions |
 | `DATASET_CSV_PATH` | `backend/data/batches.csv` | Immutable measurements |
 | `APP_ENV` | `development` | `development` or `test` allow generated local credentials; anything else is a deployment |
-| `SESSION_SECRET` | development placeholder | Signs the demo session cookie. A deployment must set a real value of at least 32 characters |
+| `SESSION_SECRET` | development placeholder | Signs the session cookie. A deployment must set at least 32 characters |
 | `DEMO_PASSCODES` | unset | `person-id=passcode` pairs gating sign-in. Generated and logged locally; required in a deployment |
 | `PUBLIC_ORIGIN` | unset | The deployed site's own `https://` origin. Required in a deployment; the only origin allowed to change state there |
-| `VITE_API_BASE_URL` | `/api` | API base used by the frontend (same-origin by default) |
-| `NVIDIA_API_KEY` | unset | The agent's credential. Environment only; never logged, returned, or written into an artifact |
+| `VITE_API_BASE_URL` | `/api` | API base used by the frontend |
+| `NVIDIA_API_KEY` | unset | The agent's credential. Environment only; never logged, returned or written into an artifact |
 | `NVIDIA_API_BASE_URL` | `https://integrate.api.nvidia.com/v1` | OpenAI-compatible endpoint |
 | `NVIDIA_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | The one frozen model |
-| `NVIDIA_REASONING` | `false` | Hosted reasoning control, verified supported. See [docs/agent.md](docs/agent.md) |
+| `NVIDIA_REASONING` | `false` | Hosted reasoning control. See [docs/agent.md](docs/agent.md) |
 | `AGENT_DEADLINE_SECONDS` | `25` | Request through persisted candidates |
 | `AGENT_MAX_MODEL_TURNS` · `AGENT_MAX_TOOL_CALLS` | `4` · `6` | Per-job ceilings |
-| `AGENT_MAX_COMPLETION_TOKENS` | `4096` | Per-job ceiling, including reported reasoning |
+| `AGENT_MAX_COMPLETION_TOKENS` | `4096` | Per model call, including reported reasoning |
 | `AGENT_MAX_CONCURRENT_JOBS` | `2` | Process-wide bound; one worker, one lock |
 
-If port 8000 is already taken, start Uvicorn elsewhere and point the dev proxy at it with
+If port 8000 is taken, start Uvicorn elsewhere and point the dev proxy at it with
 `API_PROXY_TARGET=http://127.0.0.1:8010 npm run dev`.
 
-## Endpoints
+</details>
+
+<details>
+<summary>Endpoints</summary>
 
 | Endpoint | Behaviour |
 | --- | --- |
 | `GET /health` | Liveness only. Touches no external dependency. |
 | `GET /ready` | Runs a real parameterized FalkorDB query. `200` when the graph answers, `503` with a typed `error_code` when it does not. |
-| `POST /auth/demo-session` | Signs in a provisioned demo identity against its server-side passcode. Capability is then resolved from the graph, never from a request body. |
-| `POST /auth/sign-out` | Drops the session and returns to observing, which is read-only. |
+| `POST /auth/demo-session` · `POST /auth/sign-out` | Sign in a provisioned demo identity against its server-side passcode, or drop the session. Capability is resolved from the graph. |
 | `GET /workspace` | Current evidence, live comparison, registered scope, per-occurrence freshness, decision and current reviewer, cases and releases. |
-| `GET /comparisons/{id}` | What the analyst confirms: dataset, both sides, metric, sample counts, unit and the server-generated sentence, computed live. |
-| `POST /findings` | Analyst only. Registers the displayed comparison as an approved finding, given its ID, the revision the analyst saw and the explicit "This is the intended comparison" confirmation. No free prose. |
-| `POST /documents/{id}/linked-findings` | Analyst only. Creates or reuses the finding's one placement in a document, in that layout's approved style (dollars in the operations report, cents in the memo), and updates the source-block inventory in the same guarded write. |
-| `POST /decisions/{id}/basis` | Analyst only. Records an explicit, confirmed `Decision -[BASED_ON]-> Claim`; the finding must already sit in the document that carries the decision block. |
+| `GET /comparisons/{id}` | What the analyst confirms before registering a finding, computed live. |
+| `POST /findings` | Analyst only. Registers the displayed comparison as an approved finding. No free prose. |
+| `POST /documents/{id}/linked-findings` | Analyst only. Places the finding in a document in that layout's approved style and updates its block inventory in the same guarded write. |
+| `POST /decisions/{id}/basis` | Analyst only. Records `Decision -[BASED_ON]-> Claim` once the finding sits in the decision's document. |
 | `POST /corrections/{case_id}/apply` | Analyst confirms the dispatch source; one guarded mutation moves exactly the recorded batches. |
-| `POST /cases/{case_id}/agent-runs` | Starts one bounded agent job from the analyst's own words. Persisted before any inference; `202` with a job id. |
-| `GET /jobs/{job_id}` | Real status, completed tool events, usage, elapsed time, errors and the resulting plan id. |
-| `GET /cases/{case_id}/agent-runs` | The runs recorded for a case. |
-| `POST /cases/{case_id}/stage-review` | The manual fallback: renders real candidates and persists one review plan over the complete registered scope. |
-| `POST /cases/{case_id}/refresh-review` | Deterministic re-staging for an authorized reviewer-only change. No inference, no transferred approval. |
-| `GET /plans/{id}` · `/plans/{id}/candidates/{document_id}` | Plan fingerprint and scope; the actual staged draft bytes. |
+| `POST /cases/{case_id}/agent-runs` · `GET /jobs/{job_id}` · `GET /cases/{case_id}/agent-runs` | Start one bounded agent job from the analyst's own words, and read its real status, tool events, usage and timing. |
+| `POST /cases/{case_id}/stage-review` | The manual fallback: real candidates and one review plan over the complete registered scope. |
+| `POST /cases/{case_id}/refresh-review` | Deterministic re-staging after an authorized reviewer change. No inference, no transferred approval. |
+| `GET /plans/{id}` · `/plans/{id}/candidates/{document_id}` | Plan fingerprint and scope; the actual staged bytes. |
 | `POST /plans/{id}/approve` · `/reject` | Current assigned reviewer only, against one exact version and fingerprint. |
-| `POST /plans/{id}/release` | Re-reads context, regenerates, verifies, commits the whole package. Idempotent per `operation_id`. |
-| `GET /editions/{release_id}/{document_id}` | Serves only an allowlisted path recorded in a committed release. |
-| `GET /releases/{id}/receipt` | Run receipt: hashes, approval, authority at issue, verification result. |
-| `POST /demo/reviewer-assignment` | Guarded synthetic rota change. Demo-operator capability only; no model or analyst path. |
-| `POST /demo/reset` | Demo-operator only. `{"mode": "demo_setup"}` or `{"mode": "authoring_start"}`. Refuses while another workspace write (issuing editions included) holds the lock or any agent run is unfinished; otherwise clears the graph, then the artifact volume, reseeds through the same seed functions as the CLI, issues a real Version 1 for `demo_setup`, and returns a receipt with the release and edition hashes it reads back. |
+| `POST /plans/{id}/release` | Re-reads context, regenerates, verifies and commits the whole package. Idempotent per `operation_id`. |
+| `GET /editions/{release_id}/{document_id}` · `GET /releases/{id}/receipt` | Serves only an allowlisted path recorded in a committed release, and its receipt. |
+| `POST /demo/reviewer-assignment` | Guarded synthetic rota change. Operator only. |
+| `POST /demo/reset` | Operator only. `demo_setup` or `authoring_start`. Refuses while a write holds the lock or an agent run is unfinished. |
 
-Refusals carry a stable code — `CORRECTION_SCOPE_MISMATCH`, `MISSING_PROVENANCE`,
-`DUPLICATE_PROVENANCE`, `NO_REVIEWER`, `AMBIGUOUS_REVIEWER`, `NOT_AUTHORIZED`,
-`ALTERNATIVE_NOT_ACKNOWLEDGED`, `STALE_PLAN`, `AUTHORITY_CHANGED`, `CANDIDATE_MISMATCH`,
-`VERIFICATION_FAILED`, `MODEL_NOT_CONFIGURED`, `AGENT_RUN_IN_FLIGHT`, `AGENT_BUSY`,
-`STALE_REVISION`, `BINDING_NOT_CONFIRMED`, `BASIS_NOT_CONFIRMED`, `CARD_STYLE_NOT_ALLOWED`,
-`BASIS_REQUIRES_LINKED_FINDING`, `BASIS_ALREADY_RECORDED`, `ORIGIN_REFUSED`,
-`ORIGIN_REQUIRED`, `WORKSPACE_BUSY` — plus the witness the UI needs to explain them.
+Refusals carry a stable code, such as `NOT_AUTHORIZED`, `AUTHORITY_CHANGED`,
+`STALE_PLAN`, `IMPACT_SCOPE_MISMATCH`, `MISSING_PROVENANCE`, `CANDIDATE_MISMATCH`,
+`VERIFICATION_FAILED` or `MODEL_NOT_CONFIGURED`, plus the witness the UI needs to explain
+it. In a deployment, every state-changing request must name the site's own origin.
 
-Every state-changing request must name its origin (`Origin`, or `Referer` as a fallback)
-and that origin must be the site's own. In a deployment a request naming neither is
-refused; locally a request with neither is a test client or script and is let through,
-but a named foreign origin never is.
+</details>
 
-## Graph model and queries
+## Deployment
 
-See [docs/graph-model.md](docs/graph-model.md) for the schema, the cardinality rules, and
-the FalkorDB 6.0.2 compatibility notes, and [docs/queries.md](docs/queries.md) for the
-essential queries including both guarded mutations.
+One host runs [compose.prod.yaml](compose.prod.yaml) with FalkorDB, the API and Caddy,
+and nothing else.
 
-## The agent
+| Service | Exposure | State |
+| --- | --- | --- |
+| `falkordb` (`falkordb/falkordb:6.0.2`) | Internal Docker network only | Named volume `falkordb-data`, AOF with `appendfsync always` |
+| `api` ([backend/Dockerfile](backend/Dockerfile)) | Private networks, reached through Caddy | Named volume `api-runtime` for staged candidates and issued editions |
+| `caddy` ([frontend/Dockerfile](frontend/Dockerfile)) | Ports 80 and 443 | Named volumes for certificates and Caddy state |
 
-See [docs/agent.md](docs/agent.md) for the four typed tools, the bounded loop, the
-authority boundary, the model configuration and the measured latency. In short: the model
-interprets the request and chooses between correcting and holding; the engine owns every
-figure, the card wording, the complete scope and every permission check; and a staged plan
-is a draft that only the currently assigned reviewer can approve.
+Caddy serves the built frontend at `/`, proxies `/api/*` to the API, and obtains the
+certificate for `SITE_HOST`. The API runs one Uvicorn worker with `APP_ENV=production`.
+It refuses to start without a `SESSION_SECRET` of at least 32 characters,
+`DEMO_PASSCODES` and an `https://` `PUBLIC_ORIGIN`. The cookie is then
+`Secure; HttpOnly; SameSite=Lax`. Secrets live in a `chmod 600` env file on the server and
+never in the repository, the images or a log.
 
-## How correctness is enforced
+```bash
+docker compose --env-file /opt/resultripple/.env -f compose.prod.yaml up -d --build
+docker compose --env-file /opt/resultripple/.env -f compose.prod.yaml exec api python -m scripts.seed_demo
+```
 
-- **Arithmetic** uses integer cents and exact `Fraction` means. Rounding happens only for
-  display, under a pinned half-up rule, and direction is decided on the exact signed
-  difference rather than on rounded text.
-- **The factual grammar is finite**: lower cost, higher cost, equal mean cost, or an
-  explicit withheld comparison with a reason. A card is rendered whole from a closed
-  template; no free-text span is ever patched. A withheld comparison is shown in the
-  workspace but held at staging (`RESULT_WITHHELD`), so it never reaches a reviewer.
-- **Scope is enumerated by the engine**, from a document-rooted inventory query. A caller
-  cannot silently exclude the second report. The case's impact traversal must reach
-  exactly the same cards, every card must be bound to the comparison it states, and a
-  decision block must have a recorded basis placed beside it; otherwise nothing is
-  rendered.
-- **Candidate-content identity** covers measurements, memberships, the evidence definition
-  and binding, every source block and occurrence, the typed decision disposition, the bound
-  intent, and the template version. **Execution identity** adds the candidate hashes, the
-  current reviewer, the context revision, the plan version, and the prior release. A
-  reviewer change therefore preserves the bytes while invalidating the approval.
-- **A stale plan is retired, not stranded.** When approval or release refuses a plan
-  because the evidence, sources or context moved (`STALE_PLAN`, `STALE_CONTEXT`) or the
-  independent verifier rejects its bytes (`VERIFICATION_FAILED`), one guarded write marks
-  it `INVALIDATED` with that reason and reopens the case, so a new version can be staged.
-  The old approval never carries over.
-- **Guarded mutations write everything or nothing.** Every existence and cardinality
-  check precedes the first write clause, so a missing document or occurrence prevents a
-  release or plan from being created rather than suppressing its return value. A filter
-  placed after a write is not a rollback.
-- **Issuing a session requires a credential.** Naming an identity is not authenticating
-  as one. Passcodes are held server-side, compared in constant time, and never served to
-  the browser; a deployment that still carries the development session secret or has no
-  passcodes provisioned refuses to start.
-- **The model supplies no fact.** It has four typed tools with strict schemas and no
-  capability to approve, release, reassign, correct evidence, or name a path. Its
-  principal is not a `Person` in the graph, so every authority check fails for it by
-  construction. Its note is shown as unassessed commentary and never enters a card. A
-  missing, empty or truncated completion is reported as a failure, never narrated as a
-  staged review.
-- **An independent verifier** (`backend/app/verify_artifacts.py`) re-reads the immutable
-  CSV and the membership snapshot, re-derives the arithmetic, re-states the expected
-  sentence from its own copy of the grammar, and parses the actual generated bytes. It
-  imports nothing from the engine, the renderer, or the templates.
+After that the operator resets the workspace through `POST /api/demo/reset`. Persistence
+check, which confirms the editions survive a container restart:
+
+```bash
+docker compose exec falkordb redis-cli CONFIG GET appendonly appendfsync
+```
 
 ## Tests
 
@@ -299,179 +356,73 @@ cd backend && .venv/Scripts/python -m pytest -q
 cd frontend && npm run typecheck && npm run test && npm run build
 ```
 
-The backend suite runs against a **real FalkorDB** on an isolated graph (`rr_test`) and an
-isolated artifact volume; nothing mocks the graph. It covers the hand-derived arithmetic,
-the immutable CSV hash with exactly three changed memberships, the impact traversal
-cross-checked against the registered inventory, complete occurrence coverage that a caller cannot narrow, missing and
-duplicate provenance, missing and ambiguous review authority, reviewer enforcement,
-unacknowledged alternatives, stale approval, tampered candidates, idempotent release, and
-an authority change that refuses a previously valid approval. Separate suites prove that a
-refused release or plan leaves the graph byte-identical, and that a session cannot be
-issued by naming an identity, by guessing a passcode, by reusing another identity's
-passcode, or by forging a cookie. The independent verifier is
-exercised against the real issued bytes and must reject a reversed direction, a changed
-magnitude, a contradicted assertion left behind, edited narrative, a wrong decision
-disposition, a missing second report, and bytes that differ from the approved hashes.
+CI runs five jobs on every pull request and push to `main`:
 
-The agent is covered at three levels. Its tools run against the real graph with no model
-involved: unknown tools, invalid arguments, a stale revision, a provenance gap, a focused
-subset that cannot narrow the scope, repeated staging that cannot duplicate a plan, an
-unstated request target that cannot be staged under any goal, a persisted clarification,
-and an agent principal that cannot approve, reject, release, reassign or correct. The
-bounded loop runs against a scripted completion endpoint for the failure modes — empty,
-truncated, prose-only, rate-limited, timed out, unreachable, malformed arguments, an
-invented tool, an exhausted budget, a world that changes between inspection and staging,
-and the turn after an unresolved intent being constrained to the question. Finally,
-`tests/test_agent_live.py` makes **real NVIDIA calls** for the semantic scenarios — a
-contradicted instruction, an ordinary request, genuine ambiguity, an instruction injected
-into the source note, and a real tool failure — and verifies the candidate bytes the agent
-actually staged with the independent verifier. Those skip when no credential is
-configured; the five-run latency measurement is marked `readiness` and deselected by
-default because it spends five inference budgets.
+- backend `pytest` against a **real FalkorDB**, with nothing mocking the graph;
+- frontend typecheck, unit tests and build;
+- the production image builds with the Compose and Caddy configuration checked;
+- two Playwright suites against the real API, graph and rendered editions, one on the
+  demo-setup seed and one on a fresh authoring workspace.
 
-Authoring has its own suites on a fresh workspace: the full authoring, first edition,
-correction, staging, approval and release path, with both issued files parsed for their
-typed cards and a graph query showing exactly 1 claim, 2 occurrences, 2 documents and 1
-basis link; and the refusals: an observer or reviewer authoring, an unknown comparison, a
-stale revision, a retried or duplicated write (including the Cypher guards on their own),
-an unsupported style, an unconfirmed binding or basis, and a missing source block that
-blocks staging and release.
+The backend suite covers:
 
-The browser suite has two Playwright projects, each needing its own workspace:
-`npm run test:e2e -- --project=workflow` against the demo-setup seed, and
-`npm run test:e2e -- --project=authoring` against a `--fresh` graph. CI runs them as the
-separate `e2e` and `e2e-authoring` jobs.
+- the hand-derived arithmetic, and the immutable CSV hash with exactly three changed
+  memberships;
+- complete occurrence coverage that a caller cannot narrow;
+- missing and duplicate provenance, and reviewer enforcement;
+- stale approval, an authority change that refuses a previously valid approval, and
+  idempotent release;
+- refused writes that leave the graph byte-identical;
+- an independent verifier that must reject reversed directions, changed magnitudes,
+  edited narrative, a missing second report, and bytes that differ from the approved
+  hashes.
 
-Live-graph tests skip themselves when no FalkorDB is reachable, and refuse to run against
-the `resultripple` demo graph.
-
-Persistence check (the current editions survive a container restart):
-
-```bash
-docker compose exec falkordb redis-cli CONFIG GET appendonly appendfsync
-```
-
-## Current implementation status
-
-The complete manual vertical slice works end to end against real FalkorDB:
-
-- The frozen 15-batch dataset, the graph schema, and seeding, with Version 1 issued by the
-  real publication path rather than shipped as a file.
-- Evidence correction through one guarded mutation; exactly three effective memberships
-  change and the raw measurements do not.
-- The complete registered scope enumerated from a document-rooted inventory independently
-  of the caller, cross-checked against the case's live impact traversal; review authority
-  read live from the decision's owning team.
-- Exact aggregation, a finite factual grammar, and whole-card rendering into two
-  standalone autoescaped HTML editions.
-- An independent verifier that parses the real generated bytes.
-- Separate **Approve revision** and **Issue editions** actions behind passcode-gated,
-  signed, expiring, HttpOnly demo sessions, with release re-reading authoritative context
-  and failing closed on stale approval or changed authority.
-- Immutable editions, a single current-release pointer, idempotent retries, and a run
-  receipt; verified to survive a FalkorDB container restart.
-- Natural finding authoring: register the displayed comparison, insert the linked finding
-  into both reports, record the decision basis, and issue the initial publication, each a
-  single guarded and idempotent graph write behind the analyst's session.
-- A real NVIDIA tool-using agent that interprets the request, investigates through live
-  graph queries, exposes the conflict between what was asked and what the evidence
-  supports, and stages a reviewable alternative — or asks one question instead. Bounded
-  jobs, honest failure states, and an unfinished run marked interrupted after a restart.
-
-Not implemented yet: the reviewer-reassignment and review-refresh *interface* (the API, its guards and its tests
-already exist, because the release guard depends on them) and the final production UI.
-Those arrive on later feature branches. Deployment is described below.
-
-The manual staging path remains as an explicitly labelled fallback for when inference is
-unavailable. It runs the same deterministic staging with a human-chosen typed frame, and
-is not an agent demonstration.
-
-## Deployment
-
-One host runs [compose.prod.yaml](compose.prod.yaml): FalkorDB, the API and Caddy, and
-nothing else.
-
-| Service | Exposure | State |
-| --- | --- | --- |
-| `falkordb` (`falkordb/falkordb:6.0.2`) | Internal Docker network only, no published port | Named volume `falkordb-data`, AOF with `appendfsync always` |
-| `api` ([backend/Dockerfile](backend/Dockerfile)) | Private networks only; reached through Caddy | Named volume `api-runtime` for staged candidates and issued editions |
-| `caddy` ([frontend/Dockerfile](frontend/Dockerfile)) | Ports 80 and 443 | Named volumes for certificates and Caddy state |
-
-Caddy serves the built frontend at `/`, proxies `/api/*` to the API with the prefix
-stripped, and obtains the certificate for `SITE_HOST` automatically. The API runs one
-Uvicorn worker with `APP_ENV=production`, which refuses to start without a
-`SESSION_SECRET` of at least 32 characters, `DEMO_PASSCODES`, and an `https://`
-`PUBLIC_ORIGIN`. The session cookie is then `Secure; HttpOnly; SameSite=Lax`.
-
-Server layout:
-
-```
-/opt/resultripple/.env   chmod 600: SITE_HOST, SESSION_SECRET, DEMO_PASSCODES, NVIDIA_API_KEY
-/opt/resultripple/app    a clone of this repository
-```
-
-`SESSION_SECRET` and the passcodes are generated on the server and never printed;
-`NVIDIA_API_KEY` is copied there with `scp`. Nothing secret is in the repository, the
-images or a log. To start or update the stack and seed it the first time:
-
-```bash
-cd /opt/resultripple/app
-docker compose --env-file /opt/resultripple/.env -f compose.prod.yaml up -d --build
-docker compose --env-file /opt/resultripple/.env -f compose.prod.yaml exec api python -m scripts.seed_demo
-```
-
-After that the operator resets the workspace through `POST /api/demo/reset`. Visitors
-without a session get the observer workspace: every read works and every mutation is
-refused by the server, while a signed-in role sees each action and receives the server's
-own refusal when it is not its to take. The frontend tells an unreachable API (a proxy
-`502`/`503` or a network failure) apart from FalkorDB being unavailable (reported by
-`/ready`).
+`tests/test_agent_live.py` makes real NVIDIA calls for the semantic scenarios and skips
+without a credential. CI has no NVIDIA credential and says so in its log.
 
 ## Limitations
 
-ResultRipple checks registered finding cards and the typed decision-status block in named
-report versions. Narrative outside those blocks is not assessed. Approved provenance can
-still be factually wrong: human approval and template correctness do not establish
-real-world truth. An artifact hash proves which bytes were issued, not that the dispatch
-note was right. Old downloads and external copies stay untouched; the app issues new
-editions and marks its own hosted history.
-
-Demo passcodes are a sandbox gate for a workspace of fictional data, not enterprise
-authentication: there is no account system, password rotation, multi-factor step, or
-sign-in rate limit. They stop an unauthenticated caller from simply claiming to be the
-reviewer; they are not a substitute for real identity management.
-
-There is no rate limiting anywhere: not on sign-in, agent runs, resets or reads. The
-deployment is a single small host for a fictional demo, and a determined caller can
-exhaust its agent budget or its CPU. Passcode guessing is bounded only by the passcodes'
-length.
-
-With FalkorDB unavailable, issued editions are not served either: an edition is served
-only through the path and hash its release recorded in the graph, so reads return `503`
-until FalkorDB answers again. The files themselves stay intact on the artifact volume.
-
-Memberships are not reconciled against direct graph writes made outside the API. The
-correction mutation moves exactly the recorded batches, but a batch moved by an
-out-of-band write is published as the effective membership it now has.
-
-The commit protocol is a local filesystem protocol plus one guarded graph write, not a
-distributed transaction. Before the pointer commit a crash can leave a private orphan
-directory; after it, referenced files must exist and hash-match. The API runs as a single
-worker because the mutation lock is in-process.
-
-The model's interpretation is fallible. A typed goal is the model's reading of a request,
-not proof that the analyst meant it, which is why the raw request stays beside it and a
-human has to acknowledge any alternative before approving. Measured over repeated runs the
-ambiguous request reached a question every time once the tool layer began forcing it, but
-this is a stochastic model on a shared endpoint: both its choices and its latency vary.
+- **The evidence run was a script.** The run in [docs/evidence](docs/evidence/README.md)
+  is a script that drove the human steps through the API: sign-ins, correction,
+  approvals, the reviewer change and releases. The agent call in the middle was real. The
+  demo video shows the same story clicked through at normal speed.
+- **No separation of duties.** In the demo, Sam is the new reviewer and also owns the
+  memo whose correction Sam approves. Authority comes only from the team's `REVIEWED_BY`
+  edge.
+- **Only registered blocks are checked.** That means registered finding cards and the
+  typed decision-status block in named report versions; narrative outside them is not
+  assessed. Approved provenance can still be factually wrong: human approval and template
+  correctness do not establish real-world truth. A hash proves which bytes were issued,
+  not that the dispatch note was right. Old downloads and external copies are not
+  touched.
+- **Demo passcodes are a sandbox gate**, not enterprise authentication. There is no
+  account system, rotation, multi-factor step or rate limit on sign-in, agent runs, resets
+  or reads. A determined caller can exhaust the agent budget of this single small host.
+- **The read-only view shows the whole case.** Anyone can read plans, jobs, receipts and
+  the analyst's raw request; all data is fictional.
+- **Reset is API-only.** There is no reset control in the interface.
+- **No editions while FalkorDB is down.** An edition is served only through the path and
+  hash its release recorded in the graph, so reads return `503` until FalkorDB answers.
+  The files stay intact on the volume.
+- **No reconciliation of direct writes.** Memberships moved by a graph write made outside
+  the API are published as the effective membership they now have.
+- **The commit is not a distributed transaction.** It is a local filesystem protocol plus
+  one guarded graph write. The API runs one worker because the mutation lock is
+  in-process.
+- **The model's interpretation is fallible.** A typed goal is the model's reading of a
+  request, which is why the raw request stays beside it and a human must acknowledge any
+  alternative. Its choices and latency vary on a shared endpoint.
 
 All organizational data in this project is fictional demo setup.
 
+## Demo video
+
+Coming soon.
+
 ## Development assistance
 
-Development assistance: Claude Code was used for implementation support. Architecture,
-testing, verification, and submission decisions were reviewed by the project author.
+Development assistance: ChatGPT was used for product design discussion, planning and code review; Claude Code was used for implementation, testing and deployment operations; independent audits were run in separate Claude sessions. Architecture, verification and submission decisions were reviewed and made by the project author.
 
 ## License
 
-See [LICENSE](LICENSE).
+[MIT](LICENSE)
