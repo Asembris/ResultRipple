@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620" width="1200" height="620" role="img" aria-labelledby="t d">
+<title id="t">ResultRipple: one evidence correction, every registered use, the right reviewer</title>
+<desc id="d">Batches B09 to B11 move from South to Pilot. The shared finding reverses from South 40 cents cheaper to 40 cents more expensive than North. The change reaches the Operations Cost Review, the South Expansion Memo and the South lane expansion proposal. Review authority moves from Noor Haddad to Sam Oyelaran, so Noor's approved plan v1 is refused with AUTHORITY_CHANGED. Sam approves plan v2 and Version 2 is issued.</desc>
+<defs>
+<radialGradient id="g" cx="40%" cy="52%" r="60%"><stop offset="0" stop-color="#E8B064" stop-opacity=".16"/><stop offset="1" stop-color="#E8B064" stop-opacity="0"/></radialGradient>
+<style>
+.s{font-family:Georgia, 'Times New Roman', Times, serif}.f{font-family:system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif}.m{font-family:ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace}.ink{fill:#EFE8DA}.ink2{fill:#C4BBAC}.ink3{fill:#948B7D}.amb{fill:#E8B064}.cor{fill:#E3876A}.sag{fill:#9CCBAE}.k{letter-spacing:2.5px}
+
+@media (prefers-reduced-motion:no-preference){
+#scene,#chips,#sOld,#sNew,#pOld,#pNew,#fOld,#fNew,#mOld,#mNew,#ring,#p1,#p2,#p3,
+#t1o,#t1n,#t2o,#t2n,#t3o,#t3n,#eNoor,#eSam,#samRing,#noorOld,#noorNew,#samNew,#b5,#stamp,#b6,#pill,
+#n1,#n2,#n3,#n4{animation-duration:10s;animation-iteration-count:infinite;animation-timing-function:ease-in-out}
+#stamp,#pill,#ring{transform-box:fill-box;transform-origin:center}
+#scene{animation-name:scene}
+@keyframes scene{0%{opacity:0}3%,94%{opacity:1}99%,100%{opacity:0}}
+#chips{animation-name:chips}
+@keyframes chips{0%,4%{transform:translateY(-80px)}14%,99%{transform:none}100%{transform:translateY(-80px)}}
+#sOld,#pOld{animation-name:outB}#sNew,#pNew{animation-name:inB}
+@keyframes outB{0%,12%{opacity:1}16%,99%{opacity:0}100%{opacity:1}}
+@keyframes inB{0%,12%{opacity:0}16%,99%{opacity:1}100%{opacity:0}}
+#fOld,#mOld{animation-name:flipOut}#fNew,#mNew{animation-name:flipIn}
+@keyframes flipOut{0%,18%{opacity:1;transform:none}23%,99%{opacity:0;transform:translateY(-14px)}100%{opacity:1;transform:none}}
+@keyframes flipIn{0%,20%{opacity:0;transform:translateY(14px)}26%,99%{opacity:1;transform:none}100%{opacity:0;transform:translateY(14px)}}
+#ring{animation-name:ring}
+@keyframes ring{0%,27%{opacity:0;transform:scale(1)}29%{opacity:.8}42%,100%{opacity:0;transform:scale(2.1)}}
+#p1,#p2,#p3{animation-name:pulse}#p2{animation-delay:.25s}#p3{animation-delay:.5s}
+@keyframes pulse{0%,28%{opacity:0;stroke-dashoffset:.35}29%{opacity:1}37%{opacity:1;stroke-dashoffset:-1}38%,100%{opacity:0;stroke-dashoffset:-1}}
+#t1o{animation-name:o1}#t1n{animation-name:i1}#t2o{animation-name:o2}#t2n{animation-name:i2}#t3o{animation-name:o3}#t3n{animation-name:i3}
+@keyframes o1{0%,36%{opacity:1}38%,99%{opacity:0}100%{opacity:1}}@keyframes i1{0%,36%{opacity:0}38%,99%{opacity:1}100%{opacity:0}}
+@keyframes o2{0%,39%{opacity:1}41%,99%{opacity:0}100%{opacity:1}}@keyframes i2{0%,39%{opacity:0}41%,99%{opacity:1}100%{opacity:0}}
+@keyframes o3{0%,42%{opacity:1}44%,99%{opacity:0}100%{opacity:1}}@keyframes i3{0%,42%{opacity:0}44%,99%{opacity:1}100%{opacity:0}}
+#eNoor{animation-name:eNoor}
+@keyframes eNoor{0%,46%{opacity:1;stroke-dasharray:none;stroke:#E8B064}52%,99%{opacity:.55}100%{opacity:1;stroke-dasharray:none}}
+#eSam{animation-name:eSam}
+@keyframes eSam{0%,50%{stroke-dashoffset:1}56%,99%{stroke-dashoffset:0}100%{stroke-dashoffset:1}}
+#samRing,#samNew{animation-name:samOn}#noorNew{animation-name:samOn}#noorOld{animation-name:noorOff}
+@keyframes samOn{0%,52%{opacity:0}56%,99%{opacity:1}100%{opacity:0}}
+@keyframes noorOff{0%,50%{opacity:1}54%,99%{opacity:0}100%{opacity:1}}
+#b5{animation-name:b5}
+@keyframes b5{0%,57%{opacity:.25}60%,99%{opacity:1}100%{opacity:.25}}
+#stamp{animation-name:stamp}
+@keyframes stamp{0%,61%{opacity:0;transform:scale(1.5)}64%{opacity:1;transform:scale(.96)}66%,99%{opacity:1;transform:none}100%{opacity:0;transform:scale(1.5)}}
+#b6{animation-name:b6}
+@keyframes b6{0%,69%{opacity:.25}72%,99%{opacity:1}100%{opacity:.25}}
+#pill{animation-name:pill}
+@keyframes pill{0%,74%{opacity:0;transform:scale(.8)}78%{opacity:1;transform:scale(1.04)}80%,99%{opacity:1;transform:none}100%{opacity:0;transform:scale(.8)}}
+#n1,#n2,#n3,#n4{animation-name:step}
+#n1{animation-delay:0s}#n2{animation-delay:1.6s}#n3{animation-delay:2.8s}#n4{animation-delay:4.6s}
+@keyframes step{0%{fill:#E8B064}12%,100%{fill:#948B7D}}
+}
+
+</style></defs>
+<rect width="1200" height="620" fill="#0E0C0A"/>
+<rect width="1200" height="620" fill="url(#g)"/>
+<text x="56" y="58" class="m k amb" font-size="15">GRAPH HACKS 2026 · TRACK 3 — COMPANY BRAIN</text>
+<text x="52" y="118" class="s ink" font-size="58">Result<tspan class="amb" font-style="italic">Ripple</tspan></text>
+<text x="1144" y="84" class="f ink" font-size="22" text-anchor="end">Correct the evidence once.</text>
+<text x="1144" y="116" class="f ink2" font-size="20" text-anchor="end">Every registered use, the decision and the right reviewer follow.</text>
+<path d="M56 146H1144" stroke="#2B2620" stroke-width="1"/>
+<g id="scene">
+<circle cx="537" cy="343" r="150" fill="none" stroke="#E8B064" stroke-opacity="0.1"/>
+<circle cx="537" cy="343" r="230" fill="none" stroke="#E8B064" stroke-opacity="0.07"/>
+<circle cx="537" cy="343" r="310" fill="none" stroke="#E8B064" stroke-opacity="0.05"/>
+<circle id="ring" cx="537" cy="343" r="150" fill="none" stroke="#E8B064" stroke-width="2" opacity="0"/>
+<text x="56" y="186" class="m k ink3" font-size="14"><tspan id="n1">1</tspan>  EVIDENCE</text>
+<text x="384" y="186" class="m k ink3" font-size="14"><tspan id="n2">2</tspan>  FINDING</text>
+<text x="712" y="186" class="m k ink3" font-size="14"><tspan id="n3">3</tspan>  PUBLISHED USES</text>
+<text x="996" y="186" class="m k ink3" font-size="14"><tspan id="n4">4</tspan>  AUTHORITY</text>
+<text x="56" y="236" class="s ink" font-size="27">North</text>
+<circle cx="156" cy="227" r="6" fill="#948B7D"/>
+<circle cx="176" cy="227" r="6" fill="#948B7D"/>
+<circle cx="196" cy="227" r="6" fill="#948B7D"/>
+<circle cx="216" cy="227" r="6" fill="#948B7D"/>
+<text x="56" y="316" class="s ink" font-size="27">South</text>
+<circle cx="156" cy="307" r="6" fill="#948B7D"/>
+<circle cx="176" cy="307" r="6" fill="#948B7D"/>
+<circle cx="196" cy="307" r="6" fill="#948B7D"/>
+<circle cx="216" cy="307" r="6" fill="#948B7D"/>
+<text x="56" y="396" class="s ink" font-size="27">Pilot</text>
+<circle cx="156" cy="387" r="6" fill="#948B7D"/>
+<circle cx="176" cy="387" r="6" fill="#948B7D"/>
+<circle cx="196" cy="387" r="6" fill="#948B7D"/>
+<circle cx="216" cy="387" r="6" fill="#948B7D"/>
+<text x="56" y="262" class="m ink3" font-size="16">400¢ mean · 4 batches</text>
+<text id="sOld" x="56" y="342" class="m ink3" font-size="16" opacity="0">360¢ mean · 7 batches</text>
+<text id="sNew" x="56" y="342" class="m cor" font-size="16">440¢ mean · 4 batches</text>
+<text id="pOld" x="56" y="422" class="m ink3" font-size="16" opacity="0">4 batches · not compared</text>
+<text id="pNew" x="56" y="422" class="m ink3" font-size="16">7 batches · not compared</text>
+<g id="chips">
+<rect x="238" y="374" width="36" height="25" rx="5" fill="#1A1714" stroke="#E8B064" stroke-width="1.5"/><text x="256" y="392" class="m amb" font-size="13" text-anchor="middle">B09</text>
+<rect x="278" y="374" width="36" height="25" rx="5" fill="#1A1714" stroke="#E8B064" stroke-width="1.5"/><text x="296" y="392" class="m amb" font-size="13" text-anchor="middle">B10</text>
+<rect x="318" y="374" width="36" height="25" rx="5" fill="#1A1714" stroke="#E8B064" stroke-width="1.5"/><text x="336" y="392" class="m amb" font-size="13" text-anchor="middle">B11</text>
+</g>
+<text x="56" y="470" class="m ink3" font-size="15">DX-2026-0914 · South → Pilot</text>
+<text x="56" y="492" class="m ink3" font-size="15">raw CSV 9f32c902… unchanged</text>
+<rect x="384" y="250" width="306" height="186" rx="14" fill="#1A1714" stroke="#E8B064" stroke-opacity=".7"/>
+<text x="408" y="282" class="m k amb" font-size="14">SHARED FINDING</text>
+<text x="408" y="316" class="f ink2" font-size="19">South vs North</text>
+<text id="fOld" x="408" y="362" class="s ink" font-size="28" opacity="0">40¢ cheaper</text>
+<text id="fNew" x="408" y="362" class="s cor" font-size="28">40¢ more expensive</text>
+<text id="mOld" x="408" y="396" class="m ink3" font-size="16" opacity="0">North 400¢ · South 360¢</text>
+<text id="mNew" x="408" y="396" class="m ink3" font-size="16">North 400¢ · South 440¢</text>
+<text x="408" y="420" class="m ink3" font-size="14">1 claim · 2 registered uses</text>
+<path d="M690 343C704 343 698 242 712 242" fill="none" stroke="#3A342C" stroke-width="2"/>
+<path id="p1" d="M690 343C704 343 698 242 712 242" pathLength="1" fill="none" stroke="#E8B064" stroke-width="3" stroke-linecap="round" stroke-dasharray=".35 1" stroke-dashoffset=".35" opacity="0"/>
+<path d="M690 343C704 343 698 348 712 348" fill="none" stroke="#3A342C" stroke-width="2"/>
+<path id="p2" d="M690 343C704 343 698 348 712 348" pathLength="1" fill="none" stroke="#E8B064" stroke-width="3" stroke-linecap="round" stroke-dasharray=".35 1" stroke-dashoffset=".35" opacity="0"/>
+<path d="M690 343C704 343 698 454 712 454" fill="none" stroke="#3A342C" stroke-width="2"/>
+<path id="p3" d="M690 343C704 343 698 454 712 454" pathLength="1" fill="none" stroke="#E8B064" stroke-width="3" stroke-linecap="round" stroke-dasharray=".35 1" stroke-dashoffset=".35" opacity="0"/>
+<rect x="712" y="200" width="250" height="84" rx="10" fill="#1A1714" stroke="#3A342C"/>
+<text x="728" y="227" class="f ink" font-size="16" font-weight="600">Operations Cost Review</text>
+<text x="728" y="249" class="m ink3" font-size="14">owner Ari · dollars card</text>
+<text id="t1o" x="728" y="272" class="m k ink3" font-size="14" opacity="0">CURRENT</text>
+<text id="t1n" x="728" y="272" class="m k sag" font-size="14">CORRECTED</text>
+<rect x="712" y="306" width="250" height="84" rx="10" fill="#1A1714" stroke="#3A342C"/>
+<text x="728" y="333" class="f ink" font-size="16" font-weight="600">South Expansion Memo</text>
+<text x="728" y="355" class="m ink3" font-size="14">owner Sam · cents card</text>
+<text id="t2o" x="728" y="378" class="m k ink3" font-size="14" opacity="0">CURRENT</text>
+<text id="t2n" x="728" y="378" class="m k sag" font-size="14">CORRECTED</text>
+<rect x="712" y="412" width="250" height="84" rx="10" fill="#1A1714" stroke="#3A342C"/>
+<text x="728" y="439" class="f ink" font-size="16" font-weight="600">South lane expansion proposal</text>
+<text x="728" y="461" class="m ink3" font-size="14">decision · basis: the finding</text>
+<text id="t3o" x="728" y="484" class="m k ink3" font-size="14" opacity="0">PROPOSED</text>
+<text id="t3n" x="728" y="484" class="m k sag" font-size="14">RETURNED FOR REVIEW</text>
+<circle cx="1080" cy="228" r="9" fill="#C4BBAC"/>
+<text x="1080" y="258" class="f ink" font-size="16" text-anchor="middle">Operations Review</text>
+<text x="1080" y="276" class="m ink3" font-size="12" text-anchor="middle">owns the proposal</text>
+<path id="eNoor" d="M1072 284L1030 352" stroke="#948B7D" stroke-width="2" stroke-dasharray="4 5" opacity=".55"/>
+<path id="eSam" d="M1088 284L1130 352" pathLength="1" stroke="#E8B064" stroke-width="2.6" stroke-dasharray="1 1" stroke-dashoffset="0"/>
+<text x="1114" y="306" class="m ink3" font-size="12">REVIEWED_BY</text>
+<circle cx="1026" cy="362" r="9" fill="none" stroke="#948B7D" stroke-width="2"/>
+<circle id="samRing" cx="1134" cy="362" r="15" fill="none" stroke="#E8B064" stroke-width="1.5"/>
+<circle cx="1134" cy="362" r="9" fill="#E8B064"/>
+<text x="1026" y="396" class="f ink" font-size="15" text-anchor="middle">Noor Haddad</text>
+<text id="noorOld" x="1026" y="414" class="m amb" font-size="12" text-anchor="middle" opacity="0">reviewer</text>
+<text id="noorNew" x="1026" y="414" class="m ink3" font-size="12" text-anchor="middle">no authority</text>
+<text x="1134" y="396" class="f ink" font-size="15" text-anchor="middle">Sam Oyelaran</text>
+<text id="samNew" x="1134" y="414" class="m amb" font-size="12" text-anchor="middle">current reviewer</text>
+<text x="996" y="462" class="m ink3" font-size="14">Sam owns the memo too;</text>
+<text x="996" y="480" class="m ink3" font-size="14">authority comes from</text>
+<text x="996" y="498" class="m ink3" font-size="14">the team edge alone.</text>
+<g id="b5">
+<rect x="56" y="522" width="534" height="58" rx="10" fill="#1A1714" stroke="#3A342C"/>
+<text x="76" y="546" class="m ink3" font-size="13">5</text>
+<text x="96" y="557" class="f ink" font-size="17">Noor issues plan v1</text>
+<g id="stamp">
+<rect x="300" y="535" width="272" height="32" rx="6" fill="none" stroke="#E3876A" stroke-width="2"/>
+<text x="436" y="557" class="m cor" font-size="15" font-weight="700" text-anchor="middle">REFUSED · AUTHORITY_CHANGED</text>
+</g></g>
+<g id="b6">
+<rect x="610" y="522" width="534" height="58" rx="10" fill="#1A1714" stroke="#3A342C"/>
+<text x="626" y="546" class="m ink3" font-size="13">6</text>
+<g stroke="#9CCBAE" transform="translate(642 540)"><path d="M2 10l6 6L19 4" fill="none" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+<text x="668" y="557" class="f ink" font-size="17">Sam approves plan v2</text>
+<g id="pill">
+<rect x="856" y="535" width="278" height="32" rx="16" fill="#9CCBAE"/>
+<text x="995" y="556" class="m" font-size="14" font-weight="700" fill="#1A1206" text-anchor="middle">v2 issued · 626caedd · ea0a575c</text>
+</g></g>
+</g>
+<text x="600" y="608" class="m ink3" font-size="15" text-anchor="middle">Deployed run, 2026-10-16 · FalkorDB 6.0.2 · nvidia/nemotron-3-super-120b-a12b · 2 tool calls · 6.4 s</text>
+</svg>

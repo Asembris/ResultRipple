@@ -21,20 +21,21 @@ are served again once FalkorDB answers.
 
 | Label | Essential properties |
 | --- | --- |
-| `Workspace` | `id`, `context_revision`, `demo` |
-| `Dataset` | `id`, `raw_sha`, `expected_batch_count`, `schema_version` |
+| `Workspace` | `id`, `context_revision`, `demo`, `label` |
+| `Dataset` | `id`, `title`, `raw_sha`, `expected_batch_count`, `schema_version` |
 | `Batch` | `id`, `cost_cents` (immutable), `recorded_lane` (historical input) |
 | `Lane` | `id`, `name` |
 | `Comparison` | `id`, `metric_key` (allowlisted), `min_n`, `display_precision` |
-| `Claim` | `id`, `definition_version` — the shared finding identity |
-| `Occurrence` | `id`, `card_style`, `block_id`, `original_assertion` (the typed assertion actually published) |
+| `Claim` | `id`, `definition_version`, `title`, `approved_at`, `approval_statement`, `approval_witness` — the shared finding identity |
+| `Occurrence` | `id`, `card_style`, `block_id`, `original_assertion` (the typed assertion actually published), `registered_by`, `registered_at` |
 | `Document` | `id`, `title`, `template`, `source_revision`, `source_sha`, `source_blocks` |
 | `Person` | `id`, `display_name`, `demo_role`, `review_capable` |
 | `Team` | `id`, `name` |
 | `Decision` | `id`, `title`, `status` |
-| `CorrectionCase` | `id`, `status`, `source_note`, `source_note_sha`, `source_ref`, `from_lane_id`, `to_lane_id`, `request_text` |
-| `ReviewPlan` | `id`, `version`, `status`, `raw_request`, `goal`, `alternative_flag`, `disposition`, `content_hash`, `execution_fingerprint`, `candidates`, `scope` |
+| `CorrectionCase` | `id`, `status`, `source_note`, `source_note_sha`, `source_ref`, `from_lane_id`, `to_lane_id`, `request_text`, `decision_id`, `comparison_id`, `applied_by`, `applied_at`, `demo_setup`, `clarification_*` |
+| `ReviewPlan` | `id`, `version`, `status`, `raw_request`, `goal`, `alternative_flag`, `disposition`, `note`, `content_hash`, `execution_fingerprint`, `candidates`, `scope`, `context_revision`, `prior_release_id`, `staged_at`, `staged_by`, `idempotency_key`, `approved_at`, `approved_by`, `acknowledged_alternative`, `invalidation_reason`, `superseded_by`, `refused_action`, `refused_at`, `invalidated_at`, `rejected_at` |
 | `Release` | `id`, `sequence`, `issued_at`, `artifacts`, `receipt`, `occurrence_snapshots`, `operation_id` |
+| `AgentJob` | `id`, `status`, `request_text`, `requested_by`, `model`, `endpoint`, `reasoning`, `started_at`, `finished_at`, `events`, `usage`, `tool_call_count`, `model_turn_count`, `elapsed_ms`, `plan_id`, `error_code`, `error_detail`, `clarification_*` |
 
 Nested structures (source blocks, plan scope, release receipts) are stored as
 canonical JSON strings. They are historical and render snapshots; they never
@@ -61,8 +62,10 @@ replace a current relationship query.
 (Document)-[:OWNED_BY]->(Person)                   editorial owner
 
 (Decision)-[:BASED_ON]->(Claim)                    recorded rationale
+                                                   {recorded_by, recorded_at, statement}
 (Decision)-[:OWNED_BY]->(Team)
 (Team)-[:REVIEWED_BY]->(Person)                    current review authority
+                                                   {source, assigned_by, assigned_at}
 
 (CorrectionCase)-[:CHANGES_BATCH]->(Batch)
 (CorrectionCase)-[:AFFECTS_LANE {role}]->(Lane)    FROM and TO for an evidence
@@ -77,12 +80,40 @@ replace a current relationship query.
 
 (Release)-[:FROM_PLAN]->(ReviewPlan)
 (Release)-[:INCLUDES_DOCUMENT]->(Document)
+
+(AgentJob)-[:FOR_CASE]->(CorrectionCase)           one bounded agent run
 ```
 
 Document ownership and review authority are deliberately separate paths. Sam
 owns the memo and holds a review-capable identity, yet cannot approve the case
 unless `(Team)-[:REVIEWED_BY]->(Sam)` currently holds. Replacing that one edge
 changes whose approval is usable without changing a single candidate byte.
+
+## Statuses
+
+| Node | Values |
+| --- | --- |
+| `CorrectionCase` | `CORRECTION_PENDING` → `CORRECTION_APPLIED` → `AWAITING_REVIEW` → `APPROVED` → `ISSUED`, with `NEEDS_CLARIFICATION` and `NEEDS_CHANGES` |
+| `ReviewPlan` | `AWAITING_REVIEW` → `APPROVED` → `ISSUED`, with `REJECTED`, `INVALIDATED`, `STALE_AUTHORITY` and `SUPERSEDED` |
+
+A plan whose approval or release is refused because the reviewer changed becomes
+`STALE_AUTHORITY`, with `invalidation_reason: AUTHORITY_CHANGED`, the `refused_action`
+(`APPROVAL` or `RELEASE`) and `refused_at`. The deterministic refresh then stages the next
+version for the current reviewer and marks the old one `SUPERSEDED`, keeping that history.
+A plan the evidence or sources moved past becomes `INVALIDATED` and reopens its case
+(`NEEDS_CHANGES`). In both cases the old approval is kept as history, never as
+permission.
+
+## Seeded state and reset
+
+Both seeds create two correction cases. The first is a first-edition case whose
+`AFFECTS_LANE` edges carry `source: 'initial-publication'`. In demo setup it is the
+`DEMO-SETUP` case, which issues Version 1 at once through the real release path. In the
+`--fresh` authoring seed it is the **Initial publication** case, issued once the analyst
+has authored the reports. The second is the `DX-2026-0914` dispatch case, which waits for
+the analyst. The operator's `POST /demo/reset` clears the graph
+with `MATCH (n) DETACH DELETE n`, clears the artifact volume, and reseeds through the
+same functions as the CLI.
 
 ## What decides the publication scope
 

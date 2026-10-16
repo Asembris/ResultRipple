@@ -1,0 +1,19 @@
+{"step": "sign_in", "person": "person-operator", "http": 200, "role": "operator", "cookie_attributes": ["HttpOnly", "Max-Age=43200", "Path=/", "SameSite=lax", "Secure"]}
+{"step": "reset", "http": 200, "mode": "demo_setup", "node_count": 36, "context_revision": 2, "release": "rel-001-c004be61", "sequence": 1, "edition_sha256": {"doc-operations-cost-review": "5a670a69c226980325af01e1e0a5e407b473865950472a2412dcafa7f387cc26", "doc-south-expansion-memo": "93c8b9dbaafd39b3523005b0d5bb0c71140eda57f869b0bf5d76668d26955a9c"}, "label": "Demo setup reset. Fictional data; not a customer action."}
+{"step": "sign_in", "person": "person-ari", "http": 200, "role": "analyst", "cookie_attributes": ["HttpOnly", "Max-Age=43200", "Path=/", "SameSite=lax", "Secure"]}
+{"step": "sign_in", "person": "person-noor", "http": 200, "role": "reviewer", "cookie_attributes": ["HttpOnly", "Max-Age=43200", "Path=/", "SameSite=lax", "Secure"]}
+{"step": "sign_in", "person": "person-sam", "http": 200, "role": "reviewer", "cookie_attributes": ["HttpOnly", "Max-Age=43200", "Path=/", "SameSite=lax", "Secure"]}
+{"step": "before_correction", "case": "CORRECTION_PENDING", "context_revision": 2, "release": "rel-001-c004be61"}
+{"step": "correction", "http": 200, "applied_edge_count": 3, "context_revision": 3}
+{"step": "agent_start", "http": 202, "job_id": "job-a8b9ac904903", "request_text": "Update the reports, but keep South as the cheaper option in the rollout memo."}
+{"step": "agent_done", "status": "AWAITING_REVIEW", "model": "nvidia/nemotron-3-super-120b-a12b", "elapsed_ms": 6365, "usage": {"completion_tokens": 233, "prompt_tokens": 5784, "reasoning_tokens": 0, "total_tokens": 6017}, "model_turns": 2, "tool_calls": 2, "plan_id": "plan-case-dispatch-b09-b11-v1", "tools": ["inspect_impact", "stage_review"], "error": null}
+{"step": "noor_approve", "http": 200, "plan": "plan-case-dispatch-b09-b11-v1", "status": "APPROVED", "approved_by": "person-noor"}
+{"step": "reassign", "http": 200, "previous": "person-noor", "current": "person-sam"}
+{"step": "noor_release", "http": 409, "code": "AUTHORITY_CHANGED", "detail": "the approval was recorded under a reviewer who no longer holds this case", "context": {"approved_reviewer_id": "person-noor", "approved_by": "person-noor", "current_reviewer_id": "person-sam", "current_reviewer_name": "Sam Oyelaran", "team_id": "team-operations-review", "context_revision": 4, "plan_context_revision": 3}}
+{"step": "refresh", "http": 200, "plan": "plan-case-dispatch-b09-b11-v2", "version": 2, "assigned": "person-sam", "candidates_identical": true, "refresh": {"mode": "REVIEWER_ONLY", "model_calls": 0, "candidate_hashes_preserved": true, "previous_plan_id": "plan-case-dispatch-b09-b11-v1", "previous_reviewer_id": "person-noor", "current_reviewer_id": "person-sam"}}
+{"step": "sam_approve", "http": 200, "status": "APPROVED", "approved_by": "person-sam"}
+{"step": "sam_release", "http": 200, "release": "rel-002-44c0bbfc", "sequence": 2}
+{"step": "edition_hash", "document": "doc-operations-cost-review", "http": 200, "sha256": "626caeddad2366b8ce869ff67feec4a6ba6ae0ac18826baa9c7a8e19b9670468", "matches_pin": true}
+{"step": "edition_hash", "document": "doc-south-expansion-memo", "http": 200, "sha256": "ea0a575c718eb11bfe9aca4fd97e52bf83dc741368f129169cfd190e8b9c33e0", "matches_pin": true}
+{"step": "plan_v1", "status": "SUPERSEDED", "invalidation_reason": "AUTHORITY_CHANGED", "refused_action": "RELEASE", "refused_at": "2026-10-16T18:32:24+00:00", "approved_by": "person-noor", "superseded_by": "plan-case-dispatch-b09-b11-v2"}
+{"step": "final_workspace", "case": "ISSUED", "context_revision": 5, "current_release": "rel-002-44c0bbfc", "sequence": 2, "decision": "RETURNED_FOR_REVIEW", "reviewer": "Sam Oyelaran"}
