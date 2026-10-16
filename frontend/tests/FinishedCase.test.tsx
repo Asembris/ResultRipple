@@ -169,3 +169,19 @@ describe("a signed-out visitor", () => {
     ).toBeDefined();
   });
 });
+
+describe("a finished case staged without the agent", () => {
+  it("says no agent run is recorded rather than implying one", async () => {
+    const workspace = JSON.parse(JSON.stringify(WORKSPACE_FINISHED)) as Workspace;
+    workspace.cases.forEach((entry) => {
+      entry.agent_runs = [];
+    });
+    stubApi({ workspace, priorPlan: { ...PLAN_V1_FINISHED, staged_by: "person-ari" } });
+    render(<App />);
+    await openStep(3, "Investigation");
+    const view = await panel();
+    expect(await view.findByText("No agent run is recorded for this case.")).toBeDefined();
+    expect(view.getByText(/Ari Mensah staged the review through the labelled\s+manual workflow/)).toBeDefined();
+    expect(view.queryByText(/investigated registered impact/)).toBeNull();
+  });
+});

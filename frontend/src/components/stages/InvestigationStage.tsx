@@ -196,7 +196,15 @@ export default function InvestigationStage({ context }: { context: StageContext 
     workspace.people.find((p) => p.person_id === id)?.display_name ?? null;
   const analystName = nameOf(kase.applied_by);
   const requesterName = nameOf(job?.requested_by) ?? analystName;
-  const heading = done
+  // A finished case staged without any agent run says so, and by whom.
+  const noRun = done && kase.agent_runs.length === 0;
+  const firstPlan = [context.priorPlan, context.plan]
+    .filter((entry): entry is NonNullable<typeof entry> => !!entry)
+    .sort((x, y) => x.version - y.version)[0];
+  const manualStager = noRun ? nameOf(firstPlan?.staged_by) : null;
+  const heading = noRun
+    ? "No agent run is recorded for this case."
+    : done
     ? staged
       ? `The agent read ${requesterName?.split(" ")[0] ?? "the analyst"}'s request as “${goalLabel(staged.goal)}”${
           staged.alternative_flag ? " and proposed an alternative." : "."
@@ -212,10 +220,17 @@ export default function InvestigationStage({ context }: { context: StageContext 
     <section className="rr-stage" role="region" aria-label="Ask the agent">
       <h1>{heading}</h1>
 
-      {done && (
+      {done && !noRun && (
         <p className="rr-copy">
           The recorded run, as the server stored it. Every line below is an event it measured; the
           model wrote no figure and no card text.
+        </p>
+      )}
+      {noRun && (
+        <p className="rr-copy">
+          {manualStager ? `${manualStager} staged` : "A person staged"} the review through the labelled
+          manual workflow, so there is no model output to show. The engine owned the scope, the
+          numbers and the card wording either way.
         </p>
       )}
 
