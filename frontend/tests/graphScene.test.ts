@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { edgeDefs, edgeTarget, nodeText } from "../src/graph/graph-scene";
+import { edgeDefs, edgeTarget, makeLabel, nodeText, placeLabel } from "../src/graph/graph-scene";
 import { stageFromWorkspace } from "../src/graph/stageFromWorkspace";
 import { WORKSPACE_CORRECTED, WORKSPACE_V1 } from "./fixtures";
 
@@ -57,5 +57,45 @@ describe("graph scene derivation", () => {
     const releaseEdges = edgeDefs(stage).filter((edge) => edge.kind === "release");
 
     expect(releaseEdges.every((edge) => edgeTarget(edge, stage).vis)).toBe(true);
+  });
+});
+
+describe("graph label placement", () => {
+  // The 1920 x 1080 canvas left of the panel, above the comparison strip.
+  const bounds = { left: 8, top: 136, right: 1348, bottom: 1072, floor: 920 };
+  const reviewerLabel = (anchor: "right" = "right") => {
+    const label = makeLabel({ type: "person", label: "Noor Haddad", anchor, fallback: "below" }, document.createElement("div"));
+    label.w = 225;
+    label.h = 60;
+    return label;
+  };
+
+  it("keeps a reviewer label to the right of its marker when it fits", () => {
+    const label = reviewerLabel();
+    placeLabel(label, "right", 1063, 640, bounds);
+    expect(label.el.style.transform).toBe("translate(1087px,610px)");
+    expect(label.el.style.textAlign).toBe("left");
+  });
+
+  it("moves a reviewer label below its marker rather than over it at the panel edge", () => {
+    const label = reviewerLabel();
+    placeLabel(label, "right", 1178, 630, bounds);
+    expect(label.el.style.transform).toBe("translate(1065.5px,654px)");
+    expect(label.el.style.textAlign).toBe("center");
+  });
+
+  it("never moves a reviewer label down into the comparison strip", () => {
+    const label = reviewerLabel();
+    placeLabel(label, "right", 1178, 880, bounds);
+    expect(label.el.style.textAlign).toBe("left");
+  });
+
+  it("leaves labels without a fallback side where they were", () => {
+    const label = makeLabel({ type: "release", label: "Current release", anchor: "right" }, document.createElement("div"));
+    label.w = 225;
+    label.h = 60;
+    placeLabel(label, "right", 1178, 630, bounds);
+    expect(label.el.style.transform).toBe("translate(1123px,600px)");
+    expect(label.el.style.textAlign).toBe("left");
   });
 });

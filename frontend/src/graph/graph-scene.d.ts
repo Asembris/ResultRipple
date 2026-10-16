@@ -56,3 +56,21 @@ export function nodeText(
 
 export const PALETTE: Record<"ivory" | "amber" | "coral" | "sage" | "dim" | "faint", string>;
 export const LAYERS: [string, number][];
+
+/** Label placement, exported so tests can run the real functions. */
+export interface SceneLabel {
+  el: HTMLDivElement;
+  w?: number;
+  h?: number;
+}
+export function makeLabel(
+  def: { type: string; label: string; anchor: "left" | "right" | "below" | "above"; fallback?: "below" },
+  layer: HTMLElement,
+): SceneLabel;
+export function placeLabel(
+  label: SceneLabel,
+  anchor: "left" | "right" | "below" | "above",
+  x: number,
+  y: number,
+  bounds?: { left: number; top: number; right: number; bottom: number; floor: number },
+): void;

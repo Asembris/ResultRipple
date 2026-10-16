@@ -71,8 +71,8 @@ function nodeDefs(s) {
     { id: 'decision', type: 'decision', label: txtOf(L.decisionTitle) || 'Decision', pos: [9.4, -0.8, 0], anchor: 'below' },
     { id: 'plan', type: 'plan', label: txtOf(L.planTitle) || 'Review plan', pos: [11.8, 2.6, 0.5], anchor: 'right' },
     { id: 'team', type: 'team', label: txtOf(L.teamTitle) || 'Owning team', pos: [11.4, -4.4, 0], anchor: 'below' },
-    { id: 'noor', type: 'person', label: txtOf(L.reviewerAName) || 'Reviewer A', pos: [14.4, -2.2, 0], anchor: 'right' },
-    { id: 'sam', type: 'person', label: txtOf(L.reviewerBName) || 'Reviewer B', pos: [14.4, -6.3, 0], anchor: 'right' },
+    { id: 'noor', type: 'person', label: txtOf(L.reviewerAName) || 'Reviewer A', pos: [14.4, -2.2, 0], anchor: 'right', fallback: 'below' },
+    { id: 'sam', type: 'person', label: txtOf(L.reviewerBName) || 'Reviewer B', pos: [14.4, -6.3, 0], anchor: 'right', fallback: 'below' },
   ];
   const bp = batchPositions(s, false);
   batchesOf(s).forEach((b) => d.push({ id: b.id, type: 'batch', label: b.id, cost: b.costCents, pos: bp[b.id], anchor: 'left' }));
@@ -247,7 +247,7 @@ export function edgeTarget(e, s) {
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const E = { out: (t) => 1 - Math.pow(1 - t, 3), inOut: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2), back: (t) => { const c = 1.6; return t <= 0 ? 0 : t >= 1 ? 1 : 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); } };
 
-function makeLabel(def, layer) {
+export function makeLabel(def, layer) {
   const el = document.createElement('div');
   el.style.cssText = 'position:absolute;left:0;top:0;opacity:0;pointer-events:none;white-space:nowrap;will-change:transform,opacity;text-shadow:0 1px 14px rgba(8,7,6,.95),0 0 3px rgba(8,7,6,.9)';
   const major = ['comparison', 'finding', 'document', 'decision'].includes(def.type);
@@ -261,13 +261,19 @@ function makeLabel(def, layer) {
   s.style.cssText = `font:400 12px/1.3 ${FONT_MONO};color:#A39A8C;margin-top:5px`;
   const g = document.createElement('div');
   g.style.cssText = `display:none;font:600 12px/1 ${FONT_MONO};letter-spacing:.08em;padding:4px 6px 3px;border-radius:2px;margin-top:6px;width:max-content`;
-  const align = def.anchor === 'left' ? 'right' : def.anchor === 'below' ? 'center' : 'left';
-  el.style.textAlign = align;
-  if (align === 'right') g.style.marginLeft = 'auto';
-  if (align === 'center') { g.style.marginLeft = 'auto'; g.style.marginRight = 'auto'; }
   el.append(t, s, g);
   layer.appendChild(el);
-  return { el, t, s, g, gap: def.type === 'batch' ? 12 : def.type === 'lane' ? 0 : def.type === 'finding' ? 34 : def.type === 'document' ? 34 : 24, last: '' };
+  const L = { el, t, s, g, gap: def.type === 'batch' ? 12 : def.type === 'lane' ? 0 : def.type === 'finding' ? 34 : def.type === 'document' ? 34 : 24, last: '', fallback: def.fallback || null, side: null };
+  alignLabel(L, def.anchor);
+  return L;
+}
+function alignLabel(L, anchor) {
+  if (L.side === anchor) return;
+  L.side = anchor;
+  const align = anchor === 'left' ? 'right' : anchor === 'below' || anchor === 'above' ? 'center' : 'left';
+  L.el.style.textAlign = align;
+  L.g.style.marginLeft = align === 'left' ? '' : 'auto';
+  L.g.style.marginRight = align === 'center' ? 'auto' : '';
 }
 function setLabelText(L, txt, base) {
   const key = (txt.title || base) + '|' + (txt.sub || '') + '|' + (txt.tag ? txt.tag.join() : '');
@@ -288,9 +294,17 @@ function setLabelText(L, txt, base) {
 }
 // Labels stay inside the visible canvas: never off its edges, never under the
 // panel on the right (bounds.right) or the masthead and note (bounds.top).
-function placeLabel(L, anchor, x, y, bounds) {
+export function placeLabel(L, anchor, x, y, bounds) {
   const g = L.gap;
   if (!L.w) { L.w = L.el.offsetWidth; L.h = L.el.offsetHeight; }
+  // A label the right edge would push back over its own node moves below it,
+  // when it fits above the comparison strip (bounds.floor). A small margin
+  // before switching back keeps the camera drift from flipping it.
+  if (anchor === 'right' && L.fallback && bounds && L.w) {
+    const room = bounds.right - (L.side === L.fallback ? 16 : 0);
+    if (x + g + L.w > room && y + g + L.h <= bounds.floor) anchor = L.fallback;
+  }
+  alignLabel(L, anchor);
   const w = L.w, h = L.h;
   let left = anchor === 'left' ? x - g - w : anchor === 'below' || anchor === 'above' ? x - w / 2 : x + g;
   let top = anchor === 'below' ? y + g : anchor === 'above' ? y - g - h : y - h / 2;
@@ -329,7 +343,7 @@ void main(){
 const FOCI = {
   overview: { x: 1.9, y: 0.9, w: 34, h: 18 },
   evidence: { x: -6.8, y: -0.2, w: 15, h: 16.5 },
-  review: { x: 7.4, y: 1.0, w: 18, h: 14 },
+  review: { x: 7.4, y: 0.4, w: 18, h: 14 },
   authority: { x: 11.6, y: -1.4, w: 14.5, h: 13 },
 };
 
@@ -412,7 +426,7 @@ export function createScene(opts) {
     const n = {
       id: def.id, type: def.type, def, group, mats, sprite, hs, spin, hit,
       pos: new V(...def.pos), target: new V(...def.pos), color: TONE.ivory.clone(), tColor: TONE.ivory.clone(),
-      vis: 1, tVis: 1, flash: 0, flashColor: TONE.ivory.clone(), intro: 1, arc: null, dim: 1,
+      vis: 1, tVis: 1, flash: 0, flashColor: TONE.ivory.clone(), intro: 1, arc: null, dim: 1, clear: 1,
       label: makeLabel(def, labelLayer),
     };
     nodes.push(n); nodeMap[def.id] = n;
@@ -729,10 +743,16 @@ export function createScene(opts) {
       const isHot = hovered === n.id || selected === n.id;
       const s = Math.max(0.0001, n.vis * n.intro * (1 + n.flash * 0.3) * (isHot ? 1.25 : 1));
       n.group.position.copy(n.pos); n.group.scale.setScalar(s);
+      // A node reaching up under the masthead or the graph note fades, so the
+      // chrome above it stays legible; its label is already hidden there.
+      const sy = (-tmp.copy(n.pos).project(camera).y * 0.5 + 0.5) * ch;
+      const reach = (n.type === 'document' ? 0.5 : SIZE[n.type] || 0.3) / wpp;
+      const underChrome = ins.top > 1 && sy - reach < Math.max(72, ins.top + 16);
+      n.clear += ((underChrome ? 0.08 : 1) - n.clear) * slowK;
       const c = tmp.set(n.color.r, n.color.g, n.color.b);
-      n.mats.forEach(({ m, op }) => { m.color.setRGB(c.x + (n.flashColor.r - c.x) * n.flash, c.y + (n.flashColor.g - c.y) * n.flash, c.z + (n.flashColor.b - c.z) * n.flash); m.opacity = op * n.dim; });
+      n.mats.forEach(({ m, op }) => { m.color.setRGB(c.x + (n.flashColor.r - c.x) * n.flash, c.y + (n.flashColor.g - c.y) * n.flash, c.z + (n.flashColor.b - c.z) * n.flash); m.opacity = op * n.dim * n.clear; });
       n.sprite.material.color.copy(n.color).lerp(n.flashColor, n.flash);
-      n.sprite.material.opacity = (n.type === 'batch' ? 0.35 : 0.45) * n.dim + n.flash * 0.6;
+      n.sprite.material.opacity = ((n.type === 'batch' ? 0.35 : 0.45) * n.dim + n.flash * 0.6) * n.clear;
       n.sprite.scale.setScalar(n.hs * (1 + n.flash * 1.2) * (isHot ? 1.3 : 1));
       n.spin.forEach((m, i) => { m.rotation.z += dt * (0.25 + i * 0.12); });
       n.flash *= Math.pow(0.12, dt);
@@ -745,7 +765,7 @@ export function createScene(opts) {
       const labelIntro = intro ? clamp((it - 1.2) / 0.8) : 1;
       const o = n.vis * labelIntro * (n.dim > 0.5 ? 1 : 0.28 + n.dim * 0.5);
       // Below the masthead and the purpose note, left of the panel.
-      const bounds = { left: 8, top: Math.max(72, ins.top + 16), right: W - ins.right - 12, bottom: H - 8 };
+      const bounds = { left: 8, top: Math.max(72, ins.top + 16), right: W - ins.right - 12, bottom: H - 8, floor: H - ins.bottom + 30 };
       // A node outside the visible canvas, such as under the panel, shows no label;
       // a visible node's label is kept inside the canvas.
       const onCanvas = x >= bounds.left + 16 && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
