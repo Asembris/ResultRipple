@@ -287,7 +287,7 @@ function setLabelText(L, txt, base) {
   } else L.g.style.display = 'none';
 }
 // Labels stay inside the visible canvas: never off its edges, never under the
-// panel on the right (bounds.right) or the masthead (bounds.top).
+// panel on the right (bounds.right) or the masthead and note (bounds.top).
 function placeLabel(L, anchor, x, y, bounds) {
   const g = L.gap;
   if (!L.w) { L.w = L.el.offsetWidth; L.h = L.el.offsetHeight; }
@@ -744,7 +744,8 @@ export function createScene(opts) {
       const x = (lp.x * 0.5 + 0.5) * W, y = (-lp.y * 0.5 + 0.5) * H;
       const labelIntro = intro ? clamp((it - 1.2) / 0.8) : 1;
       const o = n.vis * labelIntro * (n.dim > 0.5 ? 1 : 0.28 + n.dim * 0.5);
-      const bounds = { left: 8, top: 72, right: W - ins.right - 12, bottom: H - 8 };
+      // Below the masthead and the purpose note, left of the panel.
+      const bounds = { left: 8, top: Math.max(72, ins.top + 16), right: W - ins.right - 12, bottom: H - 8 };
       // A node outside the visible canvas, such as under the panel, shows no label;
       // a visible node's label is kept inside the canvas.
       const onCanvas = x >= bounds.left + 16 && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
