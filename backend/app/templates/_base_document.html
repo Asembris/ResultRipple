@@ -92,7 +92,7 @@ footer dd { margin:0; word-break:break-all; }
            data-decision-status="{{ decision.status }}">
     <h2>{{ block.heading }}</h2>
     <p class="decision__status">{{ decision.title }} &mdash; {{ decision.status_label }}</p>
-    <p>Recorded basis: the linked finding above ({{ decision.basis_claim_id or 'no recorded basis' }}).
+    <p>Recorded basis: the linked finding above ({{ decision.basis_claim_id }}).
        ResultRipple records the disposition of this proposal; it does not decide it.</p>
   </section>
     {%- endif %}

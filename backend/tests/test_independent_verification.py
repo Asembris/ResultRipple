@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from app import domain
@@ -30,12 +32,14 @@ def _audit(seeded, plan, released, artifacts=None, expected_hashes=None):
         csv_path=seeded["csv_path"],
         dataset_sha=scope["dataset_sha"],
         memberships=scope["memberships"],
-        comparison=scope["comparison"],
+        comparison={**scope["comparison"], "dataset_id": domain.DATASET_ID},
         documents=scope["documents"],
         occurrences=scope["occurrences"],
         decision={
             "decision_id": domain.DECISION_ID,
             "expected_status": "RETURNED_FOR_REVIEW",
+            "title": scope["decision"]["title"],
+            "basis_claim_id": scope["decision"]["basis_claim_id"],
         },
         artifacts=artifacts
         if artifacts is not None
@@ -153,6 +157,58 @@ def test_the_audit_rejects_bytes_that_differ_from_the_approved_hashes(
     )
     assert not report.ok
     assert any("hash_matches_approved" in c.name for c in report.failures)
+
+
+# Thirteen tampered byte sets, each caught by content alone: no approved hash is
+# supplied, so only what the verifier independently derives and parses can fail.
+OPS, MEMO = domain.DOC_OPS, domain.DOC_MEMO
+TAMPERS = {
+    "direction_in_dollars": (OPS, b"$0.40 more per parcel", b"$0.40 less per parcel"),
+    "direction_attribute": (
+        OPS, b'data-relation="HIGHER_COST"', b'data-relation="LOWER_COST"'
+    ),
+    "fake_number_in_sentence": (MEMO, b"40 cents more expensive", b"80 cents more expensive"),
+    "unit_attribute": (OPS, b'data-unit="USD_PER_PARCEL"', b'data-unit="CENTS_PER_PARCEL"'),
+    "unit_in_sentence": (OPS, b"South costs $0.40 more", b"South costs 40 cents more"),
+    "edited_narrative": (OPS, b"All figures are descriptive.", b"All figures prove the case."),
+    "stale_paraphrase_in_narrative": (
+        MEMO,
+        b"Operations Review team.</p>",
+        b"Operations Review team. South is 40 cents cheaper per parcel than North.</p>",
+    ),
+    "fake_evidence_row_old_mean": (
+        MEMO, b"mean 440 cents per parcel over 4 batches", b"mean 360 cents per parcel over 7 batches"
+    ),
+    "fake_evidence_row_count": (
+        OPS, b"mean $4.40 per parcel over 4 batches", b"mean $4.40 per parcel over 11 batches"
+    ),
+    "appended_narrative_paragraph": (
+        MEMO,
+        b"Operations Review team.</p>",
+        b"Operations Review team.</p><p>South remains the cheaper lane.</p>",
+    ),
+    "flipped_visible_decision_label": (MEMO, b"&mdash; Returned for review", b"&mdash; Proposed"),
+    "edited_basis_line": (
+        MEMO, b"Recorded basis: the linked finding above (", b"Recorded basis: the board vote ("
+    ),
+    "swapped_claim_id": (
+        MEMO, b'data-claim-id="claim-south-vs-north-cost"', b'data-claim-id="claim-x"'
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(TAMPERS))
+def test_the_audit_catches_every_tamper_by_content_alone(seeded, ari, noor, name) -> None:
+    plan, released = _issue(ari, noor)
+    document_id, before, after = TAMPERS[name]
+    artifacts = _artifacts(seeded, released)
+    assert artifacts[document_id].count(before) == 1, f"{name}: target bytes not found once"
+    artifacts[document_id] = artifacts[document_id].replace(before, after)
+
+    report = _audit(seeded, plan, released, artifacts=artifacts)
+
+    assert not report.ok, f"{name} passed as clean"
+    assert not any("hash_matches_approved" in c.name for c in report.checks)
 
 
 def _artifacts(seeded, released) -> dict[str, bytes]:

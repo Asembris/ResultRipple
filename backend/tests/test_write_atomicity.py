@@ -82,6 +82,7 @@ def release_arguments(plan: dict[str, Any], context_revision: int) -> dict[str, 
         "expected_revision": context_revision,
         "expected_prior_release_id": plan["prior_release_id"] or "",
         "decision_id": domain.DECISION_ID,
+        "basis_claim_id": scope["decision"]["basis_claim_id"],
         "decision_status": "RETURNED_FOR_REVIEW",
         "release": {
             "release_id": "rel-should-never-exist",
@@ -190,6 +191,41 @@ def test_a_release_missing_an_occurrence_is_never_committed(seeded, ari, noor) -
     assert helpers.workspace(ari)["decision"]["status"] == "PROPOSED"
 
 
+def test_a_decision_status_changes_only_through_its_recorded_basis(seeded, ari, noor) -> None:
+    """Audit C U5: no BASED_ON path from the decision to a placed claim, no release."""
+    graph = seeded["graph"]
+    plan = approved_plan(ari, noor)
+    revision = helpers.workspace(ari)["context_revision"]
+    graph.run(
+        "MATCH (:Decision {id:$decision})-[b:BASED_ON]->(:Claim) DELETE b",
+        {"decision": domain.DECISION_ID},
+    )
+    before = snapshot(graph)
+
+    with pytest.raises(GuardFailed) as refused:
+        graph.commit_release(**release_arguments(plan, revision))
+
+    assert refused.value.code == "RELEASE_GUARD_FAILED"
+    assert snapshot(graph) == before
+    assert graph.release("rel-should-never-exist") is None
+
+
+def test_a_basis_claim_outside_the_released_scope_is_never_committed(
+    seeded, ari, noor
+) -> None:
+    graph = seeded["graph"]
+    plan = approved_plan(ari, noor)
+    revision = helpers.workspace(ari)["context_revision"]
+    before = snapshot(graph)
+
+    arguments = release_arguments(plan, revision)
+    arguments["basis_claim_id"] = "claim-not-in-scope"
+    with pytest.raises(GuardFailed):
+        graph.commit_release(**arguments)
+
+    assert snapshot(graph) == before
+
+
 def test_a_stale_revision_leaves_the_current_package_untouched(seeded, ari, noor) -> None:
     graph = seeded["graph"]
     plan = approved_plan(ari, noor)
@@ -239,3 +275,128 @@ def _plan_properties(plan_id: str) -> dict[str, Any]:
         "idempotency_key": "atomicity-probe",
         "staged_by": domain.PERSON_ARI,
     }
+
+
+# -- the current-release pointer ------------------------------------------------
+
+
+def _parallel_pointer(graph, release_id: str) -> None:
+    """Audit C C6: a second CURRENT_RELEASE edge to the same release."""
+    graph.run(
+        """
+        MATCH (w:Workspace {id:$workspace}), (r:Release {id:$release})
+        CREATE (w)-[:CURRENT_RELEASE]->(r)
+        """,
+        {"workspace": domain.WORKSPACE_ID, "release": release_id},
+    )
+
+
+def _second_current_release(graph) -> None:
+    """Audit C C9: a pointer to a different release beside the real one."""
+    graph.run(
+        """
+        MATCH (w:Workspace {id:$workspace})
+        CREATE (r:Release {id:'rel-injected', sequence:7, issued_at:'2026-10-16T00:00:00+00:00',
+                           artifacts:'{}', receipt:'{}', occurrence_snapshots:'[]',
+                           operation_id:'injected'})
+        CREATE (w)-[:CURRENT_RELEASE]->(r)
+        """,
+        {"workspace": domain.WORKSPACE_ID},
+    )
+
+
+@pytest.mark.parametrize("inject", ["parallel", "second_release"])
+def test_more_than_one_current_pointer_holds_the_workspace(seeded, ari, noor, inject) -> None:
+    graph = seeded["graph"]
+    plan = approved_plan(ari, noor)
+    if inject == "parallel":
+        _parallel_pointer(graph, seeded["version_one"]["release_id"])
+    else:
+        _second_current_release(graph)
+
+    state = helpers.workspace(ari)
+    assert state["hold"]["code"] == "AMBIGUOUS_CURRENT_RELEASE"
+    assert state["current_release"] is None
+
+    before = snapshot(graph)
+    refused = helpers.release(noor, plan["plan_id"], "op-ambiguous")
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "AMBIGUOUS_CURRENT_RELEASE"
+    assert snapshot(graph) == before
+
+
+def test_commit_release_refuses_two_pointers_before_any_write(seeded, ari, noor) -> None:
+    """The guarded write itself counts pointers; it never duplicates a release."""
+    graph = seeded["graph"]
+    plan = approved_plan(ari, noor)
+    revision = helpers.workspace(ari)["context_revision"]
+    _parallel_pointer(graph, seeded["version_one"]["release_id"])
+    before = snapshot(graph)
+
+    with pytest.raises(GuardFailed):
+        graph.commit_release(**release_arguments(plan, revision))
+
+    assert snapshot(graph) == before
+    assert graph.run("MATCH (r:Release {id:'rel-should-never-exist'}) RETURN count(r) AS n")[0][
+        "n"
+    ] == 0
+
+
+# -- approval and rejection: guards before the first write ----------------------
+
+
+def _orphan_plan(graph, plan_id: str) -> None:
+    """Audit C C7: the plan loses the edge to its case."""
+    graph.run("MATCH (:ReviewPlan {id:$plan})-[f:FOR_CASE]->() DELETE f", {"plan": plan_id})
+
+
+def _approval_state(graph, plan_id: str) -> dict[str, Any]:
+    return {
+        "status": graph.run(
+            "MATCH (p:ReviewPlan {id:$plan}) RETURN p.status AS status", {"plan": plan_id}
+        )[0]["status"],
+        "approvals": graph.run(
+            "MATCH (:ReviewPlan {id:$plan})-[a:APPROVED_BY]->() RETURN count(a) AS n",
+            {"plan": plan_id},
+        )[0]["n"],
+    }
+
+
+def test_a_refused_approval_leaves_no_approval_behind(seeded, ari, noor) -> None:
+    graph = seeded["graph"]
+    helpers.apply_correction(ari)
+    plan = helpers.staged_plan(ari)
+    _orphan_plan(graph, plan["plan_id"])
+    before = snapshot(graph)
+
+    with pytest.raises(GuardFailed) as refused:
+        graph.approve_plan(
+            plan_id=plan["plan_id"],
+            version=int(plan["version"]),
+            fingerprint=plan["execution_fingerprint"],
+            reviewer_id=domain.PERSON_NOOR,
+            approved_at="2026-10-16T00:00:00+00:00",
+            acknowledged_alternative=True,
+        )
+
+    assert refused.value.code == "APPROVAL_GUARD_FAILED"
+    assert snapshot(graph) == before
+    assert _approval_state(graph, plan["plan_id"]) == {"status": "AWAITING_REVIEW", "approvals": 0}
+
+
+def test_a_refused_rejection_changes_nothing(seeded, ari, noor) -> None:
+    graph = seeded["graph"]
+    helpers.apply_correction(ari)
+    plan = helpers.staged_plan(ari)
+    _orphan_plan(graph, plan["plan_id"])
+    before = snapshot(graph)
+
+    with pytest.raises(GuardFailed):
+        graph.reject_plan(
+            plan_id=plan["plan_id"],
+            reviewer_id=domain.PERSON_NOOR,
+            reason="wrong scope",
+            at="2026-10-16T00:00:00+00:00",
+        )
+
+    assert snapshot(graph) == before

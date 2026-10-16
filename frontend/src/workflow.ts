@@ -43,6 +43,19 @@ export function authoringOpen(ws: Workspace): boolean {
   return initialPublicationCase(ws) !== null && ws.current_release === null;
 }
 
+/**
+ * A plan the server retired: rejected by its reviewer, or invalidated because
+ * the world moved after staging. Its case is open again for a new version.
+ */
+export function planRetired(plan: PlanSummary | null): boolean {
+  return plan?.status === "INVALIDATED" || plan?.status === "REJECTED";
+}
+
+/** A fresh idempotency key per attempt, so a restage never replays a retired plan. */
+export function stagingAttempt(kase: CorrectionCase): number {
+  return kase.plans.length + 1;
+}
+
 export function latestPlanSummary(kase: CorrectionCase | null): PlanSummary | null {
   if (!kase || kase.plans.length === 0) return null;
   return kase.plans.reduce((best, plan) => (plan.version > best.version ? plan : best));
@@ -95,7 +108,11 @@ export function stepState(ws: Workspace, plan: Plan | null): StepState {
   const issued = plan?.status === "ISSUED" || plans.some((entry) => entry.status === "ISSUED");
   if (issued) return { reachable: 7, fallback: 7 };
 
-  const refreshed = plans.length > 1;
+  // Only a reviewer-only refresh supersedes a plan for AUTHORITY_CHANGED; a
+  // restage after a rejection or an invalidation is an ordinary new review.
+  const refreshed = plans.some(
+    (entry) => entry.status === "SUPERSEDED" && entry.invalidation_reason === "AUTHORITY_CHANGED",
+  );
   const staleAuthority =
     plan?.status === "STALE_AUTHORITY" || plans.some((entry) => entry.status === "STALE_AUTHORITY");
   if (refreshed || staleAuthority) return { reachable: 7, fallback: 6 };

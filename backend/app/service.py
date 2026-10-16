@@ -22,6 +22,7 @@ from .artifacts import ArtifactStore, RenderedPackage, render_package
 from .engine import (
     CaseContext,
     EngineHold,
+    assert_impact_covers_scope,
     compute_comparison,
     content_identity,
     execution_identity,
@@ -61,6 +62,10 @@ class Actor:
     display_name: str
     demo_role: str
     review_capable: bool
+
+
+# Who may prepare a review plan. Review authority is a separate, graph-held fact.
+STAGING_ROLES = frozenset({"analyst", "agent"})
 
 
 def _now() -> str:
@@ -207,6 +212,7 @@ def _scope_record(context: CaseContext, intent: IntentFrame) -> dict[str, Any]:
         "dataset_sha": context.evidence.raw_sha,
         "comparison": {
             "comparison_id": context.definition.comparison_id,
+            "dataset_id": context.definition.dataset_id,
             "left_lane_id": context.definition.left_lane_id,
             "left_lane_name": context.definition.left_lane_name,
             "right_lane_id": context.definition.right_lane_id,
@@ -256,7 +262,16 @@ def stage_review(
     the write, and an intent derived from evidence or authority that no longer
     holds would reach a reviewer. The manual path passes nothing and is
     unaffected.
+
+    Only the analyst or the agent principal acting for the analyst prepares a
+    review, so the person who approves and issues never also prepared it.
     """
+    if actor.demo_role not in STAGING_ROLES:
+        raise WorkflowRefused(
+            "NOT_AUTHORIZED",
+            "only the analyst or the agent acting for the analyst prepares a review",
+            http_status=403,
+        )
     with WORKSPACE_LOCK:
         case = graph.case(case_id)
         if case is None:
@@ -286,6 +301,8 @@ def stage_review(
                     "current_context_revision": context.context_revision,
                 },
             )
+
+        assert_impact_covers_scope(graph, case_id, context.scope)
 
         content_hash = domain.canonical_sha(
             content_identity(
@@ -359,8 +376,14 @@ def refresh_review(
             raise WorkflowRefused("NO_PLAN", "latest plan could not be read", http_status=404)
         if prior["status"] == "ISSUED":
             raise WorkflowRefused("ALREADY_ISSUED", "this plan is already published")
+        if prior["status"] == "INVALIDATED":
+            raise WorkflowRefused(
+                "NEW_INVESTIGATION_REQUIRED",
+                "this plan was retired because the world moved; stage a new version",
+            )
 
         context = _context(graph, csv_path)
+        assert_impact_covers_scope(graph, case_id, context.scope)
         content_hash = domain.canonical_sha(
             content_identity(
                 context,
@@ -472,7 +495,7 @@ def approve_plan(
                 "the assigned reviewer changed; refresh the review",
                 context=_authority_witness(plan, context),
             )
-        if actor.person_id != context.authority.reviewer_id:
+        if actor.person_id != context.authority.reviewer_id or not actor.review_capable:
             raise WorkflowRefused(
                 "NOT_AUTHORIZED",
                 "document ownership and a review-capable identity are not approval authority",
@@ -489,7 +512,7 @@ def approve_plan(
                 "the proposed alternative must be acknowledged before approval",
             )
         # Re-derive the fingerprint from the current world before recording it.
-        _assert_plan_fresh(plan, context)
+        _assert_plan_fresh_or_invalidate(graph, plan, context)
         try:
             graph.approve_plan(
                 plan_id=plan_id,
@@ -535,6 +558,38 @@ def _authority_witness(plan: dict[str, Any], context: CaseContext) -> dict[str, 
         "context_revision": context.context_revision,
         "plan_context_revision": plan.get("context_revision"),
     }
+
+
+# Refusals that mean the world moved past this plan. Each retires the plan and
+# reopens the case, so the case can be restaged instead of being stranded.
+INVALIDATING_REFUSALS = frozenset({"STALE_PLAN", "STALE_CONTEXT", "VERIFICATION_FAILED"})
+
+
+def _invalidate(graph: GraphClient, plan_id: str, refusal: WorkflowRefused) -> None:
+    """Record the refusal on the plan, reopen the case, then refuse.
+
+    Approval is never transferred: the restaged plan is a new version that needs
+    a fresh approval. Callers reach this only after the actor check, so only the
+    current reviewer's own attempt can retire a plan.
+    """
+    try:
+        graph.invalidate_plan(plan_id=plan_id, reason=refusal.code, at=_now())
+    except GuardFailed:
+        pass  # Already out of review: the refusal stands either way.
+    else:
+        refusal.context = {**refusal.context, "plan_invalidated": True, "recovery": "RESTAGE"}
+    raise refusal
+
+
+def _assert_plan_fresh_or_invalidate(
+    graph: GraphClient, plan: dict[str, Any], context: CaseContext
+) -> None:
+    try:
+        _assert_plan_fresh(plan, context)
+    except WorkflowRefused as refusal:
+        if refusal.code not in INVALIDATING_REFUSALS:
+            raise
+        _invalidate(graph, plan["plan_id"], refusal)
 
 
 def _assert_plan_fresh(plan: dict[str, Any], context: CaseContext) -> None:
@@ -586,9 +641,18 @@ def issue_release(
             raise WorkflowRefused("PLAN_UNKNOWN", plan_id, http_status=404)
 
         # Reconcile a previously committed operation before judging freshness.
-        committed = graph.release_for_plan(plan_id) or graph.release_by_operation(operation_id)
+        # An operation id reconciles only to a release of this very plan: another
+        # plan's release is never reported as this plan being issued.
+        committed = graph.release_for_plan(plan_id)
         if committed is not None:
             return {"release": committed, "idempotent": True}
+        by_operation = graph.release_by_operation(operation_id)
+        if by_operation is not None:
+            raise WorkflowRefused(
+                "OPERATION_ID_CONFLICT",
+                "this operation id already issued a different plan",
+                context={"operation_id": operation_id},
+            )
 
         context = _context(graph, csv_path)
 
@@ -603,14 +667,15 @@ def issue_release(
             raise WorkflowRefused(
                 _status_refusal_code(plan["status"]), f"plan is {plan['status']}"
             )
-        if actor.person_id != context.authority.reviewer_id:
+        if actor.person_id != context.authority.reviewer_id or not actor.review_capable:
             raise WorkflowRefused(
                 "NOT_AUTHORIZED",
-                "only the current reviewer may issue this package",
+                "only the current, review-capable reviewer may issue this package",
                 http_status=403,
                 context={"current_reviewer_id": context.authority.reviewer_id},
             )
-        _assert_plan_fresh(plan, context)
+        _assert_plan_fresh_or_invalidate(graph, plan, context)
+        assert_impact_covers_scope(graph, plan["case_id"], context.scope)
 
         approved_hashes: dict[str, str] = json.loads(plan["candidates"])
         scope = json.loads(plan["scope"])
@@ -631,21 +696,27 @@ def issue_release(
             csv_path=csv_path,
             dataset_sha=context.evidence.raw_sha,
             memberships=context.evidence.memberships(),
-            comparison=scope["comparison"],
+            comparison={**scope["comparison"], "dataset_id": context.definition.dataset_id},
             documents=scope["documents"],
             occurrences=scope["occurrences"],
             decision={
                 "decision_id": context.authority.decision_id,
                 "expected_status": domain.DISPOSITION_DECISION_STATUS[plan["disposition"]],
+                "title": context.authority.decision_title,
+                "basis_claim_id": context.authority.basis_claim_id,
             },
             artifacts=package.documents,
             expected_hashes=approved_hashes,
         )
         if not report.ok:
-            raise WorkflowRefused(
-                "VERIFICATION_FAILED",
-                "independent verification rejected the candidate bytes",
-                context={"failures": [c.name for c in report.failures][:10]},
+            _invalidate(
+                graph,
+                plan_id,
+                WorkflowRefused(
+                    "VERIFICATION_FAILED",
+                    "independent verification rejected the candidate bytes",
+                    context={"failures": [c.name for c in report.failures][:10]},
+                ),
             )
 
         sequence = 1 + len(graph.release_history())
@@ -680,6 +751,7 @@ def issue_release(
                 expected_revision=context.context_revision,
                 expected_prior_release_id=context.prior_release_id,
                 decision_id=context.authority.decision_id,
+                basis_claim_id=context.authority.basis_claim_id or "",
                 decision_status=domain.DISPOSITION_DECISION_STATUS[plan["disposition"]],
                 release={
                     "release_id": release_id,
@@ -710,6 +782,7 @@ def _status_refusal_code(status: str) -> str:
         "REJECTED": "PLAN_REJECTED",
         "SUPERSEDED": "PLAN_SUPERSEDED",
         "STALE_AUTHORITY": "AUTHORITY_CHANGED",
+        "INVALIDATED": "PLAN_INVALIDATED",
         "ISSUED": "ALREADY_ISSUED",
     }.get(status, "PLAN_STATE")
 
@@ -813,7 +886,7 @@ def reassign_reviewer(
         try:
             changed = graph.reassign_reviewer(
                 workspace_id=domain.WORKSPACE_ID,
-                team_id=domain.TEAM_ID,
+                decision_id=domain.DECISION_ID,
                 from_person_id=from_person_id,
                 to_person_id=to_person_id,
                 expected_revision=expected_revision,

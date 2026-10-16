@@ -11,13 +11,16 @@ alone would conceal a duplicate edge, so the engine can fail closed.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from dataclasses import dataclass
 from typing import Any
 
 from falkordb import FalkorDB
+from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from .config import Settings
 from .models import GraphStatus
@@ -33,6 +36,14 @@ from .models import GraphStatus
 #     projection. See docs/graph-model.md.
 _PROBE_QUERY = "RETURN $probe AS probe"
 _PROBE_VALUE = "resultripple"
+
+# A dropped socket or a timeout, as raised by redis-py or by the standard library.
+_CONNECTION_ERRORS = (ConnectionError, TimeoutError, RedisConnectionError, RedisTimeoutError)
+
+# Every query here is a fixed string, so whether it writes is decided once, from
+# its text. A write is never re-executed: its reply can be lost after it
+# committed, and running it again could apply it twice or report a false failure.
+_WRITE_CLAUSE = re.compile(r"\b(CREATE|MERGE|SET|DELETE|REMOVE)\b")
 
 # One pooled FalkorDB handle per endpoint, shared by every GraphClient instance.
 _CONNECTIONS: dict[tuple[str, int, float], FalkorDB] = {}
@@ -100,7 +111,8 @@ class GraphClient:
                 _CONNECTIONS[key] = client
             return client
 
-    def _reconnect(self) -> FalkorDB:
+    def _forget(self) -> None:
+        """Drop the pooled handle so the next call opens a fresh connection."""
         key = (
             self.settings.falkordb_host,
             self.settings.falkordb_port,
@@ -108,16 +120,27 @@ class GraphClient:
         )
         with _CONNECTION_LOCK:
             _CONNECTIONS.pop(key, None)
+
+    def _reconnect(self) -> FalkorDB:
+        self._forget()
         return self._connect()
 
     # -- raw access -----------------------------------------------------------
 
     def run(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-        """Execute one fixed query and return rows as dicts keyed by alias."""
+        """Execute one fixed query and return rows as dicts keyed by alias.
+
+        A read is retried once on a dropped pooled socket. A write is not: it
+        fails closed as unreachable, and the caller reconciles by reading.
+        """
         try:
             result = self._connect().select_graph(self.graph_name).query(query, params or {})
-        except (ConnectionError, TimeoutError) as exc:
-            # One retry on a dropped pooled socket, then fail closed.
+        except _CONNECTION_ERRORS as exc:
+            if _WRITE_CLAUSE.search(query):
+                self._forget()
+                raise GraphUnavailable(
+                    "GRAPH_UNREACHABLE", f"{type(exc).__name__}: {exc}; write not retried"
+                ) from exc
             try:
                 result = self._reconnect().select_graph(self.graph_name).query(
                     query, params or {}
@@ -182,13 +205,23 @@ class GraphClient:
     # -- workspace ------------------------------------------------------------
 
     def workspace(self, workspace_id: str) -> dict[str, Any]:
+        """The workspace, its revision, and its current-release pointer.
+
+        Pointers are counted as relationships, so two parallel pointers to one
+        release are not mistaken for one. A current release is reported only
+        when exactly one pointer exists; the engine holds on more than one.
+        """
         row = self.run_one(
             """
             MATCH (w:Workspace {id:$workspace_id})
             OPTIONAL MATCH (w)-[pointer:CURRENT_RELEASE]->(rel:Release)
+            WITH w, collect(DISTINCT pointer) AS pointers,
+                 collect(DISTINCT rel.id) AS release_ids
             RETURN w.id AS workspace_id, w.context_revision AS context_revision,
-                   w.demo AS demo, coalesce(rel.id, '') AS current_release_id,
-                   count(pointer) AS pointer_count
+                   coalesce(w.demo, false) AS demo,
+                   CASE WHEN size(pointers) = 1 THEN release_ids[0] ELSE '' END
+                       AS current_release_id,
+                   size(pointers) AS pointer_count
             """,
             {"workspace_id": workspace_id},
         )
@@ -974,19 +1007,25 @@ class GraphClient:
         approved_at: str,
         acknowledged_alternative: bool,
     ) -> dict[str, Any]:
-        """Record approval of one exact plan version and execution fingerprint."""
+        """Record approval of one exact plan version and execution fingerprint.
+
+        Every guard, including exactly one owning case, precedes the first write:
+        a refused approval must not leave an approval behind.
+        """
         row = self.run_one(
             """
-            MATCH (p:ReviewPlan {id:$plan_id})-[:ASSIGNED_TO_REVIEWER]->(reviewer:Person {id:$reviewer_id})
+            MATCH (p:ReviewPlan {id:$plan_id})-[:ASSIGNED_TO_REVIEWER]->(reviewer:Person {id:$reviewer_id}),
+                  (p)-[:FOR_CASE]->(c:CorrectionCase)
             WHERE p.status = 'AWAITING_REVIEW' AND p.version = $version
               AND p.execution_fingerprint = $fingerprint
+            WITH p, reviewer, collect(DISTINCT c) AS cases
+            WHERE size(cases) = 1
+            WITH p, reviewer, head(cases) AS c
             SET p.status = 'APPROVED', p.approved_at = $approved_at,
                 p.approved_by = $reviewer_id,
-                p.acknowledged_alternative = $acknowledged_alternative
+                p.acknowledged_alternative = $acknowledged_alternative,
+                c.status = 'APPROVED'
             CREATE (p)-[:APPROVED_BY]->(reviewer)
-            WITH p
-            MATCH (p)-[:FOR_CASE]->(c:CorrectionCase)
-            SET c.status = 'APPROVED'
             RETURN p.id AS plan_id, p.version AS version
             """,
             {
@@ -1010,12 +1049,14 @@ class GraphClient:
     ) -> dict[str, Any]:
         row = self.run_one(
             """
-            MATCH (p:ReviewPlan {id:$plan_id})-[:ASSIGNED_TO_REVIEWER]->(:Person {id:$reviewer_id})
+            MATCH (p:ReviewPlan {id:$plan_id})-[:ASSIGNED_TO_REVIEWER]->(:Person {id:$reviewer_id}),
+                  (p)-[:FOR_CASE]->(c:CorrectionCase)
             WHERE p.status = 'AWAITING_REVIEW'
-            SET p.status = 'REJECTED', p.invalidation_reason = $reason, p.rejected_at = $at
-            WITH p
-            MATCH (p)-[:FOR_CASE]->(c:CorrectionCase)
-            SET c.status = 'NEEDS_CHANGES'
+            WITH p, collect(DISTINCT c) AS cases
+            WHERE size(cases) = 1
+            WITH p, head(cases) AS c
+            SET p.status = 'REJECTED', p.invalidation_reason = $reason, p.rejected_at = $at,
+                c.status = 'NEEDS_CHANGES'
             RETURN p.id AS plan_id
             """,
             {"plan_id": plan_id, "reviewer_id": reviewer_id, "reason": reason, "at": at},
@@ -1034,6 +1075,30 @@ class GraphClient:
             """,
             {"plan_id": plan_id, "reason": reason},
         )
+
+    def invalidate_plan(self, *, plan_id: str, reason: str, at: str) -> dict[str, Any]:
+        """Retire a plan the world has moved past, and reopen its case for restaging.
+
+        One guarded write: the plan keeps its approval as invalid history, never
+        as permission, and the case returns to NEEDS_CHANGES so the analyst or
+        the agent can stage a new version for a fresh approval.
+        """
+        row = self.run_one(
+            """
+            MATCH (p:ReviewPlan {id:$plan_id})-[:FOR_CASE]->(c:CorrectionCase)
+            WHERE p.status IN ['APPROVED', 'AWAITING_REVIEW']
+              AND c.status IN ['APPROVED', 'AWAITING_REVIEW']
+            SET p.status = 'INVALIDATED', p.invalidation_reason = $reason,
+                p.invalidated_at = $at, c.status = 'NEEDS_CHANGES'
+            RETURN p.id AS plan_id, c.id AS case_id
+            """,
+            {"plan_id": plan_id, "reason": reason, "at": at},
+        )
+        if row is None:
+            raise GuardFailed(
+                "INVALIDATE_GUARD_FAILED", "the plan or its case is no longer in review"
+            )
+        return row
 
     # -- releases -------------------------------------------------------------
 
@@ -1101,6 +1166,7 @@ class GraphClient:
         expected_revision: int,
         expected_prior_release_id: str,
         decision_id: str,
+        basis_claim_id: str,
         decision_status: str,
         release: dict[str, Any],
         document_ids: list[str],
@@ -1109,7 +1175,8 @@ class GraphClient:
         """One guarded write publishes the whole package and moves one pointer.
 
         Every guard -- expected context revision, plan approval at this exact
-        version and fingerprint, the owning case, the expected prior release,
+        version and fingerprint, the owning case, at most one current pointer
+        and the expected prior release behind it,
         and the complete presence of every document and occurrence in scope --
         precedes the first write clause. A filter placed after a write is not a
         rollback, so an absent document or occurrence must prevent the release
@@ -1117,25 +1184,34 @@ class GraphClient:
 
         It never updates a single document pointer: the current release is one
         node covering both editions, or nothing is committed at all.
+
+        The decision status changes only through a real recorded path: the
+        decision must be BASED_ON the plan's basis claim, and that claim must be
+        placed by an occurrence inside the released scope.
         """
         row = self.run_one(
             """
             MATCH (w:Workspace {id:$workspace_id}),
                   (p:ReviewPlan {id:$plan_id})-[:FOR_CASE]->(c:CorrectionCase),
-                  (decision:Decision {id:$decision_id}),
+                  (decision:Decision {id:$decision_id})-[:BASED_ON]->(basis:Claim {id:$basis_claim_id}),
+                  (basis_use:Occurrence)-[:OF_CLAIM]->(basis),
                   (doc:Document),
                   (occ:Occurrence)
             WHERE w.context_revision = $expected_revision
               AND p.status = 'APPROVED' AND p.version = $plan_version
               AND p.execution_fingerprint = $fingerprint
+              AND basis_use.id IN $occurrence_ids
               AND doc.id IN $document_ids
               AND occ.id IN $occurrence_ids
             OPTIONAL MATCH (w)-[pointer:CURRENT_RELEASE]->(prior:Release)
-            WITH w, p, c, decision, pointer, coalesce(prior.id, '') AS prior_id,
+            WITH w, p, c, decision, collect(DISTINCT pointer) AS pointers,
+                 collect(DISTINCT prior.id) AS prior_ids,
                  collect(DISTINCT doc) AS docs, collect(DISTINCT occ) AS occs
-            WHERE prior_id = $expected_prior_release_id
+            WHERE size(pointers) <= 1
+              AND coalesce(head(prior_ids), '') = $expected_prior_release_id
               AND size(docs) = $expected_document_count
               AND size(occs) = $expected_occurrence_count
+            WITH w, p, c, decision, head(pointers) AS pointer, docs
             DELETE pointer
             CREATE (r:Release {
                 id:$release_id, sequence:$sequence, issued_at:$issued_at,
@@ -1167,6 +1243,7 @@ class GraphClient:
                 "expected_revision": expected_revision,
                 "expected_prior_release_id": expected_prior_release_id,
                 "decision_id": decision_id,
+                "basis_claim_id": basis_claim_id,
                 "decision_status": decision_status,
                 "document_ids": sorted(document_ids),
                 "expected_document_count": len(set(document_ids)),
@@ -1179,7 +1256,8 @@ class GraphClient:
         if row is None:
             raise GuardFailed(
                 "RELEASE_GUARD_FAILED",
-                "context revision, plan approval, or prior release pointer did not hold",
+                "context revision, plan approval, decision basis path, or prior release "
+                "pointer did not hold",
             )
         return row
 
@@ -1189,7 +1267,7 @@ class GraphClient:
         self,
         *,
         workspace_id: str,
-        team_id: str,
+        decision_id: str,
         from_person_id: str,
         to_person_id: str,
         expected_revision: int,
@@ -1197,26 +1275,34 @@ class GraphClient:
         source: str,
         at: str,
     ) -> dict[str, Any]:
-        """Replace exactly one REVIEWED_BY edge. Operator capability only."""
+        """Replace the one REVIEWED_BY edge of the team that owns the decision.
+
+        The team is resolved through the decision's OWNED_BY edge, never named
+        by the caller. Exactly one owning team and exactly one current review
+        edge, held by the expected person, must exist before anything is written.
+        """
         row = self.run_one(
             """
             MATCH (w:Workspace {id:$workspace_id}),
                   (next:Person {id:$to_person_id}),
-                  (team:Team {id:$team_id})-[old:REVIEWED_BY]->(previous:Person {id:$from_person_id})
+                  (decision:Decision {id:$decision_id})-[:OWNED_BY]->(team:Team),
+                  (team)-[old:REVIEWED_BY]->(holder:Person)
             WHERE w.context_revision = $expected_revision AND next.review_capable = true
-            WITH w, team, previous, next, collect(old) AS authority
-            WHERE size(authority) = 1
-            UNWIND authority AS stale
+            WITH w, next, collect(DISTINCT team) AS teams, collect(DISTINCT old) AS authority,
+                 collect(DISTINCT holder.id) AS holders
+            WHERE size(teams) = 1 AND size(authority) = 1
+              AND head(holders) = $from_person_id
+            WITH w, next, head(teams) AS team, head(authority) AS stale,
+                 head(holders) AS previous_id
             DELETE stale
-            WITH DISTINCT w, team, previous, next
             CREATE (team)-[:REVIEWED_BY {assigned_by:$operator_id, source:$source, assigned_at:$at}]->(next)
             SET w.context_revision = w.context_revision + 1
             RETURN w.context_revision AS context_revision,
-                   previous.id AS previous_reviewer_id, next.id AS current_reviewer_id
+                   previous_id AS previous_reviewer_id, next.id AS current_reviewer_id
             """,
             {
                 "workspace_id": workspace_id,
-                "team_id": team_id,
+                "decision_id": decision_id,
                 "from_person_id": from_person_id,
                 "to_person_id": to_person_id,
                 "expected_revision": expected_revision,
@@ -1228,7 +1314,8 @@ class GraphClient:
         if row is None:
             raise GuardFailed(
                 "REASSIGN_GUARD_FAILED",
-                "expected revision, current authority edge, or target reviewer did not hold",
+                "expected revision, the decision's one owning team, its one current review "
+                "edge, or the target reviewer did not hold",
             )
         return row
 

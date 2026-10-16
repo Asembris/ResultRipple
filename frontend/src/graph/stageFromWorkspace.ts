@@ -120,6 +120,8 @@ export interface SceneStage {
   caseVis: boolean;
   /** A registered card is contradicted by current evidence, per the server's assessment. */
   stale: boolean;
+  /** A contradicted card's direction changed, not only its magnitude. */
+  reversed: boolean;
   plan: PlanVisual;
   reviewer: ReviewerKey;
   /** False when the graph reports no resolvable current reviewer. Never guessed. */
@@ -270,6 +272,7 @@ export function stageFromWorkspace(
     changedBatchIds.every((id) => batches.find((b) => b.id === id)?.currentLane === toLaneKey);
 
   const stale = ws.assessment.some(contradicted);
+  const reversed = ws.assessment.some((entry) => contradicted(entry) && entry.relation_changed);
 
   const reviewerId = ws.decision?.current_reviewer_id ?? null;
   const personSlots = resolveSlots(
@@ -297,6 +300,7 @@ export function stageFromWorkspace(
     moved,
     caseVis: !!kase,
     stale,
+    reversed,
     plan: planVisual(kase?.plans ?? [], latest),
     reviewer: reviewerKey,
     authorityKnown,

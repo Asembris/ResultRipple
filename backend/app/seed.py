@@ -315,6 +315,26 @@ def _create_dispatch_case(graph: GraphClient) -> None:
     )
 
 
+def _link_initial_publication_lanes(graph: GraphClient, case_id: str) -> None:
+    """Record the lanes an initial publication affects: both sides of its comparison.
+
+    A first edition states the whole comparison, so its case affects both of
+    the comparison's lanes. The impact traversal from this case must then reach
+    every registered card, exactly as it must for an evidence correction. The
+    edges say why they exist, so nobody mistakes them for a dispatch note.
+    """
+    graph.run(
+        """
+        MATCH (c:CorrectionCase {id:$case_id}),
+              (cmp:Comparison {id:$comparison_id})-[:LEFT_SIDE]->(left:Lane),
+              (cmp)-[:RIGHT_SIDE]->(right:Lane)
+        CREATE (c)-[:AFFECTS_LANE {role:'LEFT', source:'initial-publication'}]->(left)
+        CREATE (c)-[:AFFECTS_LANE {role:'RIGHT', source:'initial-publication'}]->(right)
+        """,
+        {"case_id": case_id, "comparison_id": domain.COMPARISON_ID},
+    )
+
+
 def seed(graph: GraphClient, csv_path: Path) -> None:
     """Write the demo-setup workspace. Fixed, parameterized, authored queries only.
 
@@ -389,6 +409,7 @@ def seed(graph: GraphClient, csv_path: Path) -> None:
             "comparison_id": domain.COMPARISON_ID,
         },
     )
+    _link_initial_publication_lanes(graph, SETUP_CASE_ID)
 
     _create_dispatch_case(graph)
 
@@ -433,6 +454,7 @@ def seed_fresh(graph: GraphClient, csv_path: Path) -> None:
             "comparison_id": domain.COMPARISON_ID,
         },
     )
+    _link_initial_publication_lanes(graph, INITIAL_PUBLICATION_CASE_ID)
 
     _create_dispatch_case(graph)
 

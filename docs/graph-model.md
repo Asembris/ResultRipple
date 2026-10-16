@@ -5,8 +5,10 @@ memberships, approved evidence bindings, registered occurrences, document
 ownership, the recorded decision basis, review authority, and publication state.
 
 Nothing in application logic caches those answers. With FalkorDB unavailable,
-new impact, review, and release operations stop; already issued editions remain
-readable from the artifact volume.
+every graph-backed operation stops with `503`, and that includes serving an
+already issued edition: an edition is served only through the path and hash its
+release recorded in the graph. The files stay intact on the artifact volume and
+are served again once FalkorDB answers.
 
 ## What the graph is *not* authoritative for
 
@@ -63,7 +65,10 @@ replace a current relationship query.
 (Team)-[:REVIEWED_BY]->(Person)                    current review authority
 
 (CorrectionCase)-[:CHANGES_BATCH]->(Batch)
-(CorrectionCase)-[:AFFECTS_LANE {role}]->(Lane)    role is FROM or TO
+(CorrectionCase)-[:AFFECTS_LANE {role}]->(Lane)    FROM and TO for an evidence
+                                                   correction; LEFT and RIGHT, with
+                                                   source 'initial-publication',
+                                                   for a first edition
 
 (ReviewPlan)-[:FOR_CASE]->(CorrectionCase)
 (ReviewPlan)-[:COVERS]->(Occurrence)               the complete registered scope
@@ -78,6 +83,26 @@ Document ownership and review authority are deliberately separate paths. Sam
 owns the memo and holds a review-capable identity, yet cannot approve the case
 unless `(Team)-[:REVIEWED_BY]->(Sam)` currently holds. Replacing that one edge
 changes whose approval is usable without changing a single candidate byte.
+
+## What decides the publication scope
+
+The scope is every registered card in every `Document` (query C), never a list a
+caller supplies. The case's impact traversal (query B) walks from the lanes the
+case affects through comparison, claim and occurrence to each document, and the
+two must name exactly the same occurrences at staging, refresh and release. The
+traversal is a cross-check on the inventory, not the source of the scope: it
+cannot add a card the inventory lacks, and an empty traversal is a hold, never
+"no dependencies".
+
+The decision is a fixed workspace primitive (`dec-south-expansion`), not found by
+traversal. Its status changes at release only through its recorded
+`(Decision)-[:BASED_ON]->(Claim)` path to a claim placed in the released scope;
+without that path the release writes nothing.
+
+Not covered: memberships are not reconciled against direct graph writes made
+outside the API. A batch moved by an out-of-band write is published as the
+effective membership it now has; only the correction mutation enforces "exactly
+the recorded batches move".
 
 ## Cardinality and failing closed
 
@@ -94,6 +119,11 @@ hide a duplicate edge. The engine checks exact cardinality and holds otherwise:
 | Duplicate location, claim link, or comparison binding | `DUPLICATE_PROVENANCE` |
 | Authored finding blocks disagreeing with registered occurrences | `SCOPE_INVENTORY_MISMATCH` |
 | No current reviewer / several current reviewers | `NO_REVIEWER`, `AMBIGUOUS_REVIEWER` |
+| Occurrence bound to another comparison than the one rendered, or a decision basis not placed beside the decision block | `MISBOUND_PROVENANCE` |
+| Decision block with no recorded basis | `MISSING_DECISION_BASIS` |
+| The case's impact traversal and the registered inventory disagree | `IMPACT_SCOPE_MISMATCH` |
+| More than one current-release pointer | `AMBIGUOUS_CURRENT_RELEASE` |
+| A comparison withheld below its minimum sample or display resolution, at staging | `RESULT_WITHHELD` |
 
 "Unknown" is not "false". It narrows what may be done; it never licenses reusing
 a stale supported statement.

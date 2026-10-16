@@ -326,3 +326,93 @@ def test_without_falkordb_there_is_no_new_impact_answer(seeded, ari: TestClient)
 def test_an_edition_path_cannot_come_from_the_request(seeded, ari: TestClient, path) -> None:
     response = ari.get(f"/editions/{seeded['version_one']['release_id']}/{path}")
     assert response.status_code in {404, 409}
+
+
+def test_the_rota_change_refuses_a_team_with_two_review_edges(seeded, ari, operator) -> None:
+    """Audit C C3b: a second edge is a hold, not something to add a third beside."""
+    graph = seeded["graph"]
+    graph.run(
+        """
+        MATCH (team:Team {id:$team}), (sam:Person {id:$sam})
+        CREATE (team)-[:REVIEWED_BY]->(sam)
+        """,
+        {"team": domain.TEAM_ID, "sam": domain.PERSON_SAM},
+    )
+    count = "MATCH (:Team)-[a:REVIEWED_BY]->() RETURN count(a) AS n"
+    before = graph.run(count)[0]["n"]
+
+    refused = helpers.reassign(operator, helpers.workspace(ari)["context_revision"])
+
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "REASSIGN_GUARD_FAILED"
+    assert graph.run(count)[0]["n"] == before
+
+
+def test_the_rota_change_acts_on_the_team_that_owns_the_decision(seeded, ari, operator) -> None:
+    """Audit C U4: authority follows the decision's owner, never a constant team."""
+    graph = seeded["graph"]
+    graph.run(
+        """
+        MATCH (d:Decision {id:$decision})-[o:OWNED_BY]->(:Team), (sam:Person {id:$sam})
+        DELETE o
+        CREATE (t:Team {id:'team-expansion-board', name:'Expansion Board'})
+        CREATE (d)-[:OWNED_BY]->(t)
+        CREATE (t)-[:REVIEWED_BY]->(sam)
+        """,
+        {"decision": domain.DECISION_ID, "sam": domain.PERSON_SAM},
+    )
+    revision = helpers.workspace(ari)["context_revision"]
+
+    # Noor reviews the old team, which no longer owns the decision: no write.
+    refused = helpers.reassign(operator, revision)
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "REASSIGN_GUARD_FAILED"
+
+    moved = operator.post(
+        "/demo/reviewer-assignment",
+        json={
+            "from_person_id": domain.PERSON_SAM,
+            "to_person_id": domain.PERSON_NOOR,
+            "expected_context_revision": revision,
+        },
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["previous_reviewer_id"] == domain.PERSON_SAM
+    decision = helpers.workspace(ari)["decision"]
+    assert decision["team_id"] == "team-expansion-board"
+    assert decision["current_reviewer_id"] == domain.PERSON_NOOR
+
+
+def test_a_review_edge_to_a_non_reviewer_grants_no_approval(seeded, ari, noor) -> None:
+    """Audit B weakness 3b: the analyst rebound as reviewer can neither approve nor issue."""
+    helpers.apply_correction(ari)
+    graph = seeded["graph"]
+    graph.run(
+        """
+        MATCH (team:Team {id:$team})-[a:REVIEWED_BY]->(), (ari:Person {id:$ari})
+        DELETE a
+        CREATE (team)-[:REVIEWED_BY]->(ari)
+        """,
+        {"team": domain.TEAM_ID, "ari": domain.PERSON_ARI},
+    )
+    plan = helpers.staged_plan(ari, key="analyst-as-reviewer")
+    assert plan["assigned_reviewer_id"] == domain.PERSON_ARI
+
+    refused = helpers.approve(ari, plan)
+    assert refused.status_code == 403
+    assert refused.json()["code"] == "NOT_AUTHORIZED"
+
+    # Even an approval recorded by another path is not issuable by a non-reviewer.
+    graph.run(
+        """
+        MATCH (p:ReviewPlan {id:$plan})-[:FOR_CASE]->(c:CorrectionCase)
+        SET p.status = 'APPROVED', c.status = 'APPROVED'
+        """,
+        {"plan": plan["plan_id"]},
+    )
+    issued = helpers.release(ari, plan["plan_id"], "op-analyst-reviewer")
+    assert issued.status_code == 403
+    assert issued.json()["code"] == "NOT_AUTHORIZED"
+    assert helpers.workspace(ari)["current_release"]["release_id"] == (
+        seeded["version_one"]["release_id"]
+    )

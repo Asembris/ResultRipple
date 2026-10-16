@@ -158,13 +158,21 @@ def test_authoring_through_correction_and_release(fresh, fresh_ari, fresh_noor):
 
 
 def test_one_occurrence_package_states_one(fresh, fresh_ari, fresh_noor):
-    """The scope statement counts the package that was checked, never a constant."""
+    """The scope statement counts the package that was checked, never a constant.
+
+    The single card sits beside the decision block and is its recorded basis:
+    a legitimate one-card package, not a decision block with nothing behind it.
+    """
     state = helpers.workspace(fresh_ari)
     finding = helpers.create_finding(fresh_ari, state["context_revision"]).json()
     placed = helpers.insert_linked_finding(
-        fresh_ari, domain.DOC_OPS, finding["claim_id"], "DOLLARS", finding["context_revision"]
+        fresh_ari, domain.DOC_MEMO, finding["claim_id"], "CENTS", finding["context_revision"]
     )
     assert placed.status_code == 200, placed.text
+    basis = helpers.record_basis(
+        fresh_ari, finding["claim_id"], placed.json()["context_revision"]
+    )
+    assert basis.status_code == 200, basis.text
 
     expected = (
         "One registered finding occurrence and one typed decision-status block checked. "

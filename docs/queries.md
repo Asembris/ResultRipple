@@ -34,8 +34,11 @@ RETURN DISTINCT cmp.id AS comparison_id, cl.id AS claim_id,
 ORDER BY document_id, occurrence_id
 ```
 
-A real impact traversal, and never sufficient on its own: query C runs beside it
-so a missing edge cannot shrink the scope.
+A real traversal from the lanes the case affects, used as a cross-check rather
+than as the scope: query C is the scope, and the engine holds
+`IMPACT_SCOPE_MISMATCH` at staging, refresh and release unless both name exactly
+the same occurrences. A missing edge therefore cannot shrink the scope, and an
+empty traversal is a hold.
 
 ## C. Every registered card in the package
 
@@ -69,7 +72,11 @@ RETURN decision.id AS decision_id, decision.status AS decision_status,
 ```
 
 A removed basis is a visible null, not a vanished decision. Zero or several
-authority paths hold the case; exactly one is authenticated server-side.
+authority paths hold the case; exactly one is authenticated server-side. The
+decision itself is a fixed primitive looked up by id, not reached by traversal.
+Before any bytes are rendered the engine requires its basis to exist
+(`MISSING_DECISION_BASIS`) and to be a claim placed in the document carrying the
+decision block (`MISBOUND_PROVENANCE`).
 
 ## E. Applying the correction — one guarded mutation
 
@@ -105,38 +112,49 @@ dispatch note records (`CORRECTION_SCOPE_MISMATCH`), before this query runs.
 
 ```cypher
 MATCH (w:Workspace {id:$workspace_id}),
-      (p:ReviewPlan {id:$plan_id}),
-      (decision:Decision {id:$decision_id})
+      (p:ReviewPlan {id:$plan_id})-[:FOR_CASE]->(c:CorrectionCase),
+      (decision:Decision {id:$decision_id})-[:BASED_ON]->(basis:Claim {id:$basis_claim_id}),
+      (basis_use:Occurrence)-[:OF_CLAIM]->(basis),
+      (doc:Document),
+      (occ:Occurrence)
 WHERE w.context_revision = $expected_revision
   AND p.status = 'APPROVED' AND p.version = $plan_version
   AND p.execution_fingerprint = $fingerprint
+  AND basis_use.id IN $occurrence_ids
+  AND doc.id IN $document_ids
+  AND occ.id IN $occurrence_ids
 OPTIONAL MATCH (w)-[pointer:CURRENT_RELEASE]->(prior:Release)
-WITH w, p, decision, pointer, coalesce(prior.id, '') AS prior_id
-WHERE prior_id = $expected_prior_release_id
+WITH w, p, c, decision, collect(DISTINCT pointer) AS pointers,
+     collect(DISTINCT prior.id) AS prior_ids,
+     collect(DISTINCT doc) AS docs, collect(DISTINCT occ) AS occs
+WHERE size(pointers) <= 1
+  AND coalesce(head(prior_ids), '') = $expected_prior_release_id
+  AND size(docs) = $expected_document_count
+  AND size(occs) = $expected_occurrence_count
+WITH w, p, c, decision, head(pointers) AS pointer, docs
 DELETE pointer
 CREATE (r:Release { ... })
 CREATE (r)-[:FROM_PLAN]->(p)
 CREATE (w)-[:CURRENT_RELEASE]->(r)
-SET p.status = 'ISSUED', decision.status = $decision_status,
+SET p.status = 'ISSUED',
+    c.status = 'ISSUED',
+    decision.status = $decision_status,
     w.context_revision = w.context_revision + 1
-WITH w, r, p
-UNWIND $document_ids AS document_id
-MATCH (doc:Document {id:document_id})
-CREATE (r)-[:INCLUDES_DOCUMENT]->(doc)
-WITH DISTINCT w, r, p, count(doc) AS included
-WHERE included = $expected_document_count
-MATCH (p)-[:FOR_CASE]->(c:CorrectionCase)
-SET c.status = 'ISSUED'
-WITH w, r, p
+WITH w, r, docs
+UNWIND docs AS included
+CREATE (r)-[:INCLUDES_DOCUMENT]->(included)
+WITH DISTINCT w, r
 UNWIND $occurrence_assertions AS entry
-MATCH (occ:Occurrence {id: entry[0]})
-SET occ.original_assertion = entry[1]
+MATCH (target:Occurrence {id: entry[0]})
+SET target.original_assertion = entry[1]
 WITH DISTINCT w, r
 RETURN r.id AS release_id, w.context_revision AS context_revision
 ```
 
 One pointer covers the whole package; a single document pointer is never
-updated on its own. The files are written, fsynced, and renamed into an
+updated on its own. More than one existing pointer refuses the write before
+anything changes, and the decision status moves only through its recorded
+`BASED_ON` path to a claim placed in the released scope. The files are written, fsynced, and renamed into an
 immutable release directory before this runs, so a crash between the two leaves
 a private orphan rather than a half-published edition. This is a local
 filesystem protocol plus one guarded graph write — not a distributed
@@ -147,18 +165,25 @@ transaction, and it is not described as one.
 ```cypher
 MATCH (w:Workspace {id:$workspace_id}),
       (next:Person {id:$to_person_id}),
-      (team:Team {id:$team_id})-[old:REVIEWED_BY]->(previous:Person {id:$from_person_id})
+      (decision:Decision {id:$decision_id})-[:OWNED_BY]->(team:Team),
+      (team)-[old:REVIEWED_BY]->(holder:Person)
 WHERE w.context_revision = $expected_revision AND next.review_capable = true
-WITH w, team, previous, next, collect(old) AS authority
-WHERE size(authority) = 1
-UNWIND authority AS stale
+WITH w, next, collect(DISTINCT team) AS teams, collect(DISTINCT old) AS authority,
+     collect(DISTINCT holder.id) AS holders
+WHERE size(teams) = 1 AND size(authority) = 1
+  AND head(holders) = $from_person_id
+WITH w, next, head(teams) AS team, head(authority) AS stale,
+     head(holders) AS previous_id
 DELETE stale
-WITH DISTINCT w, team, previous, next
 CREATE (team)-[:REVIEWED_BY {assigned_by:$operator_id, source:$source, assigned_at:$at}]->(next)
 SET w.context_revision = w.context_revision + 1
 RETURN w.context_revision AS context_revision,
-       previous.id AS previous_reviewer_id, next.id AS current_reviewer_id
+       previous_id AS previous_reviewer_id, next.id AS current_reviewer_id
 ```
+
+The team is the one that owns the decision, resolved through its `OWNED_BY`
+edge rather than named by the caller, and it must hold exactly one
+`REVIEWED_BY` edge, to the expected person, before anything is written.
 
 No evidence or document content changes. A previously valid approval becomes
 unusable (`AUTHORITY_CHANGED`) and a fresh plan version plus fresh approval are
@@ -239,9 +264,10 @@ RETURN decision.id AS decision_id, cl.id AS claim_id,
        w.context_revision AS context_revision
 ```
 
-After authoring, correction impact (query B) finds the authored claim, both
-occurrences and the decision by traversal from the case's affected lanes. No
-document list is supplied anywhere.
+After authoring, the correction case's traversal (query B) reaches the authored
+claim and both occurrences, and must equal the inventory (query C). The decision
+is read by id (query D); the release changes its status only through its
+recorded basis path (query F). No document list is supplied anywhere.
 
 ## Running them yourself
 

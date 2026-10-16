@@ -631,6 +631,11 @@ def load_case_context(
 ) -> CaseContext:
     """Read authoritative context once, under the caller's workspace lock."""
     workspace = graph.workspace(domain.WORKSPACE_ID)
+    if int(workspace["pointer_count"]) > 1:
+        raise EngineHold(
+            "AMBIGUOUS_CURRENT_RELEASE",
+            f"the workspace has {workspace['pointer_count']} current-release pointers",
+        )
     definition = load_comparison(graph, comparison_id)
     evidence = load_evidence(graph, csv_path, definition.dataset_id)
     result = compute_comparison(evidence, definition)
@@ -645,6 +650,65 @@ def load_case_context(
         scope=scope,
         authority=authority,
     )
+
+
+def assert_publishable(context: CaseContext) -> None:
+    """Every rendered statement must agree with the provenance the graph records.
+
+    Each card is rendered from the one comparison in context, so every
+    registered occurrence must be bound to that comparison. A decision block
+    states its basis, so the basis must exist and be a claim placed in a
+    document that carries the decision block. A withheld result is never
+    published as a card. Called before any bytes are
+    rendered, so stage, refresh and release all hold the same way.
+    """
+    if context.scope.occurrences and context.result.relation == domain.RELATION_WITHHELD:
+        # The independent verifier has no withheld grammar, so a withheld card
+        # could never be issued; it must not reach a reviewer either.
+        raise EngineHold(
+            "RESULT_WITHHELD",
+            f"the comparison is withheld ({context.result.hold_reason}); nothing to publish",
+        )
+    for occ in context.scope.occurrences:
+        if occ.comparison_id != context.definition.comparison_id:
+            raise EngineHold(
+                "MISBOUND_PROVENANCE",
+                f"{occ.occurrence_id} is bound to {occ.comparison_id}, "
+                f"not {context.definition.comparison_id}",
+            )
+    holders = [
+        doc for doc in context.scope.documents if any(b["kind"] == "decision" for b in doc.blocks)
+    ]
+    if holders:
+        basis = context.authority.basis_claim_id
+        if basis is None:
+            raise EngineHold(
+                "MISSING_DECISION_BASIS", "the decision block has no recorded basis"
+            )
+        if basis not in {occ.claim_id for doc in holders for occ in doc.occurrences}:
+            raise EngineHold(
+                "MISBOUND_PROVENANCE",
+                f"decision basis {basis} is not placed beside the decision block",
+            )
+
+
+def assert_impact_covers_scope(graph: GraphClient, case_id: str, scope: PackageScope) -> None:
+    """The case's impact traversal and the registered inventory must agree.
+
+    The traversal walks from the lanes the case affects through comparison,
+    claim and occurrence to each document. The inventory is rooted at every
+    Document, so a missing edge cannot shrink it. Each is a cross-check on the
+    other: a card the traversal cannot reach, or a traversal row the inventory
+    does not hold, is a hold, never a narrower or wider package.
+    """
+    reached = {row["occurrence_id"] for row in graph.impacted_occurrences(case_id)}
+    registered = {occ.occurrence_id for occ in scope.occurrences}
+    if reached != registered:
+        raise EngineHold(
+            "IMPACT_SCOPE_MISMATCH",
+            f"the impact traversal from {case_id} reaches {sorted(reached)}, "
+            f"the registered inventory holds {sorted(registered)}",
+        )
 
 
 # -- identity: content versus permission --------------------------------------

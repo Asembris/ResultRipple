@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiRefusal, fetchJob, startAgentRun, stageReview } from "../../api";
 import type { AgentEvent, AgentJob, JobStatus } from "../../types";
-import { RELATION_PHRASE, money } from "../../workflow";
+import { RELATION_PHRASE, money, stagingAttempt } from "../../workflow";
 import type { StageContext } from "./context";
 
 /**
@@ -211,7 +211,8 @@ export default function InvestigationStage({ context }: { context: StageContext 
                 No NVIDIA credential is configured, so the deterministic staging below is the honest
                 fallback. It is not an agent demonstration.
               </div>
-              {signedIn && (
+              {/* Staging is the analyst's step; the server refuses everyone else. */}
+              {actor?.demo_role === "analyst" && (
                 <button
                   type="button"
                   className="rr-outline"
@@ -224,7 +225,7 @@ export default function InvestigationStage({ context }: { context: StageContext 
                         disposition: "RETURN_FOR_REVIEW",
                         alternative_flag: true,
                         note: "Staged by a person because inference is unavailable. The engine owns the scope, the numbers and the card wording.",
-                        idempotency_key: `${kase.case_id}-manual-stage`,
+                        idempotency_key: `${kase.case_id}-manual-stage-${stagingAttempt(kase)}`,
                       }),
                     )
                   }

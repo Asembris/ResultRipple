@@ -192,6 +192,17 @@ export default function ReviewStage({ context }: { context: StageContext }) {
         </div>
       )}
 
+      {plan.status === "INVALIDATED" && (
+        <div className="rr-alert-coral">
+          <div className="rr-alert-coral__label">Plan invalidated · {plan.invalidation_reason}</div>
+          <div className="rr-alert-coral__meta">
+            The workspace changed after this plan was staged, so it can no longer be approved or
+            issued. Nothing new is current and its approval does not carry over. Stage a new
+            version from the investigation step for a fresh review.
+          </div>
+        </div>
+      )}
+
       {plan.status === "REJECTED" && (
         <div className="rr-alert-coral">
           <div className="rr-alert-coral__label">Plan rejected</div>
