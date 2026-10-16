@@ -294,10 +294,18 @@ WHERE occ.id IN $occurrence_ids
 OPTIONAL MATCH (clash:ReviewPlan {id:$plan_id})
 WITH c, reviewer, collect(DISTINCT occ) AS covered, count(clash) AS clashes
 WHERE size(covered) = $expected_scope_size AND clashes = 0
+OPTIONAL MATCH (old:ReviewPlan {id:$old_id})-[:FOR_CASE]->(c)
+WHERE NOT old.status IN ['ISSUED', 'INVALIDATED', 'SUPERSEDED']
+WITH c, reviewer, covered, collect(old) AS superseded
+WHERE size(superseded) = $expected_superseded
 CREATE (p:ReviewPlan {id:$plan_id, version:$version, status:'AWAITING_REVIEW', ...})
 CREATE (p)-[:FOR_CASE]->(c)
 CREATE (p)-[:ASSIGNED_TO_REVIEWER]->(reviewer)
 SET c.status = 'AWAITING_REVIEW'
+FOREACH (old IN superseded |
+    SET old.status = 'SUPERSEDED',
+        old.superseded_by = $plan_id,
+        old.invalidation_reason = $supersede_reason)
 WITH p, covered
 UNWIND covered AS member
 CREATE (p)-[:COVERS]->(member)
@@ -306,8 +314,10 @@ RETURN p.id AS plan_id
 ```
 
 The elided properties are the plan fields listed in
-[graph-model.md](graph-model.md). A refresh then marks the previous version
-`SUPERSEDED` with `superseded_by` and its reason, in a second write.
+[graph-model.md](graph-model.md). A refresh passes the previous version as
+`$old_id` (`$expected_superseded` is 1); staging passes none (0). The previous
+version is marked `SUPERSEDED` with `superseded_by` and its reason in the same
+write, so no crash can leave two live versions.
 
 **Approve one exact version and fingerprint:**
 

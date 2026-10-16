@@ -933,9 +933,14 @@ class GraphClient:
         """Persist one review plan version and assign it to the current reviewer.
 
         Every existence and cardinality guard -- the case, the reviewer, the
-        complete registered scope, and the absence of a clashing plan id --
+        complete registered scope, the absence of a clashing plan id, and, when
+        superseding, exactly one retirable prior plan on the same case --
         precedes the first write clause, so a plan is created whole or not at
         all. A partially covered plan must never reach a reviewer.
+
+        Retiring the superseded plan is part of the same query: a crash can
+        never leave the new version live beside a predecessor still awaiting
+        review or approval.
 
         Staging does not touch the workspace context revision: planning must not
         invalidate itself.
@@ -949,6 +954,10 @@ class GraphClient:
             OPTIONAL MATCH (clash:ReviewPlan {id:$plan_id})
             WITH c, reviewer, collect(DISTINCT occ) AS covered, count(clash) AS clashes
             WHERE size(covered) = $expected_scope_size AND clashes = 0
+            OPTIONAL MATCH (old:ReviewPlan {id:$old_id})-[:FOR_CASE]->(c)
+            WHERE NOT old.status IN ['ISSUED', 'INVALIDATED', 'SUPERSEDED']
+            WITH c, reviewer, covered, collect(old) AS superseded
+            WHERE size(superseded) = $expected_superseded
             CREATE (p:ReviewPlan {
                 id:$plan_id, version:$version, status:'AWAITING_REVIEW',
                 raw_request:$raw_request, goal:$goal,
@@ -963,6 +972,10 @@ class GraphClient:
             CREATE (p)-[:FOR_CASE]->(c)
             CREATE (p)-[:ASSIGNED_TO_REVIEWER]->(reviewer)
             SET c.status = 'AWAITING_REVIEW'
+            FOREACH (old IN superseded |
+                SET old.status = 'SUPERSEDED',
+                    old.superseded_by = $plan_id,
+                    old.invalidation_reason = $supersede_reason)
             WITH p, covered
             UNWIND covered AS member
             CREATE (p)-[:COVERS]->(member)
@@ -974,27 +987,16 @@ class GraphClient:
                 "reviewer_id": reviewer_id,
                 "occurrence_ids": sorted(occurrence_ids),
                 "expected_scope_size": len(set(occurrence_ids)),
+                "old_id": supersedes_plan_id,
+                "expected_superseded": 1 if supersedes_plan_id else 0,
+                "supersede_reason": supersede_reason,
                 **plan,
             },
         )
         if row is None:
             raise GuardFailed(
                 "PLAN_WRITE_FAILED",
-                "case, reviewer, or the complete registered scope could not be resolved",
-            )
-        if supersedes_plan_id:
-            self.run(
-                """
-                MATCH (old:ReviewPlan {id:$old_id})
-                SET old.status = 'SUPERSEDED',
-                    old.superseded_by = $new_id,
-                    old.invalidation_reason = $reason
-                """,
-                {
-                    "old_id": supersedes_plan_id,
-                    "new_id": plan["plan_id"],
-                    "reason": supersede_reason,
-                },
+                "case, reviewer, complete registered scope, or superseded plan could not be resolved",
             )
         return row
 
