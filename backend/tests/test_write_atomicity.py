@@ -275,3 +275,68 @@ def _plan_properties(plan_id: str) -> dict[str, Any]:
         "idempotency_key": "atomicity-probe",
         "staged_by": domain.PERSON_ARI,
     }
+
+
+# -- the current-release pointer ------------------------------------------------
+
+
+def _parallel_pointer(graph, release_id: str) -> None:
+    """Audit C C6: a second CURRENT_RELEASE edge to the same release."""
+    graph.run(
+        """
+        MATCH (w:Workspace {id:$workspace}), (r:Release {id:$release})
+        CREATE (w)-[:CURRENT_RELEASE]->(r)
+        """,
+        {"workspace": domain.WORKSPACE_ID, "release": release_id},
+    )
+
+
+def _second_current_release(graph) -> None:
+    """Audit C C9: a pointer to a different release beside the real one."""
+    graph.run(
+        """
+        MATCH (w:Workspace {id:$workspace})
+        CREATE (r:Release {id:'rel-injected', sequence:7, issued_at:'2026-10-16T00:00:00+00:00',
+                           artifacts:'{}', receipt:'{}', occurrence_snapshots:'[]',
+                           operation_id:'injected'})
+        CREATE (w)-[:CURRENT_RELEASE]->(r)
+        """,
+        {"workspace": domain.WORKSPACE_ID},
+    )
+
+
+@pytest.mark.parametrize("inject", ["parallel", "second_release"])
+def test_more_than_one_current_pointer_holds_the_workspace(seeded, ari, noor, inject) -> None:
+    graph = seeded["graph"]
+    plan = approved_plan(ari, noor)
+    if inject == "parallel":
+        _parallel_pointer(graph, seeded["version_one"]["release_id"])
+    else:
+        _second_current_release(graph)
+
+    state = helpers.workspace(ari)
+    assert state["hold"]["code"] == "AMBIGUOUS_CURRENT_RELEASE"
+    assert state["current_release"] is None
+
+    before = snapshot(graph)
+    refused = helpers.release(noor, plan["plan_id"], "op-ambiguous")
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "AMBIGUOUS_CURRENT_RELEASE"
+    assert snapshot(graph) == before
+
+
+def test_commit_release_refuses_two_pointers_before_any_write(seeded, ari, noor) -> None:
+    """The guarded write itself counts pointers; it never duplicates a release."""
+    graph = seeded["graph"]
+    plan = approved_plan(ari, noor)
+    revision = helpers.workspace(ari)["context_revision"]
+    _parallel_pointer(graph, seeded["version_one"]["release_id"])
+    before = snapshot(graph)
+
+    with pytest.raises(GuardFailed):
+        graph.commit_release(**release_arguments(plan, revision))
+
+    assert snapshot(graph) == before
+    assert graph.run("MATCH (r:Release {id:'rel-should-never-exist'}) RETURN count(r) AS n")[0][
+        "n"
+    ] == 0

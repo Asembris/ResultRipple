@@ -631,6 +631,11 @@ def load_case_context(
 ) -> CaseContext:
     """Read authoritative context once, under the caller's workspace lock."""
     workspace = graph.workspace(domain.WORKSPACE_ID)
+    if int(workspace["pointer_count"]) > 1:
+        raise EngineHold(
+            "AMBIGUOUS_CURRENT_RELEASE",
+            f"the workspace has {workspace['pointer_count']} current-release pointers",
+        )
     definition = load_comparison(graph, comparison_id)
     evidence = load_evidence(graph, csv_path, definition.dataset_id)
     result = compute_comparison(evidence, definition)

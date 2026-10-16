@@ -112,38 +112,49 @@ dispatch note records (`CORRECTION_SCOPE_MISMATCH`), before this query runs.
 
 ```cypher
 MATCH (w:Workspace {id:$workspace_id}),
-      (p:ReviewPlan {id:$plan_id}),
-      (decision:Decision {id:$decision_id})
+      (p:ReviewPlan {id:$plan_id})-[:FOR_CASE]->(c:CorrectionCase),
+      (decision:Decision {id:$decision_id})-[:BASED_ON]->(basis:Claim {id:$basis_claim_id}),
+      (basis_use:Occurrence)-[:OF_CLAIM]->(basis),
+      (doc:Document),
+      (occ:Occurrence)
 WHERE w.context_revision = $expected_revision
   AND p.status = 'APPROVED' AND p.version = $plan_version
   AND p.execution_fingerprint = $fingerprint
+  AND basis_use.id IN $occurrence_ids
+  AND doc.id IN $document_ids
+  AND occ.id IN $occurrence_ids
 OPTIONAL MATCH (w)-[pointer:CURRENT_RELEASE]->(prior:Release)
-WITH w, p, decision, pointer, coalesce(prior.id, '') AS prior_id
-WHERE prior_id = $expected_prior_release_id
+WITH w, p, c, decision, collect(DISTINCT pointer) AS pointers,
+     collect(DISTINCT prior.id) AS prior_ids,
+     collect(DISTINCT doc) AS docs, collect(DISTINCT occ) AS occs
+WHERE size(pointers) <= 1
+  AND coalesce(head(prior_ids), '') = $expected_prior_release_id
+  AND size(docs) = $expected_document_count
+  AND size(occs) = $expected_occurrence_count
+WITH w, p, c, decision, head(pointers) AS pointer, docs
 DELETE pointer
 CREATE (r:Release { ... })
 CREATE (r)-[:FROM_PLAN]->(p)
 CREATE (w)-[:CURRENT_RELEASE]->(r)
-SET p.status = 'ISSUED', decision.status = $decision_status,
+SET p.status = 'ISSUED',
+    c.status = 'ISSUED',
+    decision.status = $decision_status,
     w.context_revision = w.context_revision + 1
-WITH w, r, p
-UNWIND $document_ids AS document_id
-MATCH (doc:Document {id:document_id})
-CREATE (r)-[:INCLUDES_DOCUMENT]->(doc)
-WITH DISTINCT w, r, p, count(doc) AS included
-WHERE included = $expected_document_count
-MATCH (p)-[:FOR_CASE]->(c:CorrectionCase)
-SET c.status = 'ISSUED'
-WITH w, r, p
+WITH w, r, docs
+UNWIND docs AS included
+CREATE (r)-[:INCLUDES_DOCUMENT]->(included)
+WITH DISTINCT w, r
 UNWIND $occurrence_assertions AS entry
-MATCH (occ:Occurrence {id: entry[0]})
-SET occ.original_assertion = entry[1]
+MATCH (target:Occurrence {id: entry[0]})
+SET target.original_assertion = entry[1]
 WITH DISTINCT w, r
 RETURN r.id AS release_id, w.context_revision AS context_revision
 ```
 
 One pointer covers the whole package; a single document pointer is never
-updated on its own. The files are written, fsynced, and renamed into an
+updated on its own. More than one existing pointer refuses the write before
+anything changes, and the decision status moves only through its recorded
+`BASED_ON` path to a claim placed in the released scope. The files are written, fsynced, and renamed into an
 immutable release directory before this runs, so a crash between the two leaves
 a private orphan rather than a half-published edition. This is a local
 filesystem protocol plus one guarded graph write — not a distributed

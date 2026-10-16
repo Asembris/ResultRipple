@@ -122,6 +122,7 @@ hide a duplicate edge. The engine checks exact cardinality and holds otherwise:
 | Occurrence bound to another comparison than the one rendered, or a decision basis not placed beside the decision block | `MISBOUND_PROVENANCE` |
 | Decision block with no recorded basis | `MISSING_DECISION_BASIS` |
 | The case's impact traversal and the registered inventory disagree | `IMPACT_SCOPE_MISMATCH` |
+| More than one current-release pointer | `AMBIGUOUS_CURRENT_RELEASE` |
 
 "Unknown" is not "false". It narrows what may be done; it never licenses reusing
 a stale supported statement.

@@ -182,13 +182,23 @@ class GraphClient:
     # -- workspace ------------------------------------------------------------
 
     def workspace(self, workspace_id: str) -> dict[str, Any]:
+        """The workspace, its revision, and its current-release pointer.
+
+        Pointers are counted as relationships, so two parallel pointers to one
+        release are not mistaken for one. A current release is reported only
+        when exactly one pointer exists; the engine holds on more than one.
+        """
         row = self.run_one(
             """
             MATCH (w:Workspace {id:$workspace_id})
             OPTIONAL MATCH (w)-[pointer:CURRENT_RELEASE]->(rel:Release)
+            WITH w, collect(DISTINCT pointer) AS pointers,
+                 collect(DISTINCT rel.id) AS release_ids
             RETURN w.id AS workspace_id, w.context_revision AS context_revision,
-                   w.demo AS demo, coalesce(rel.id, '') AS current_release_id,
-                   count(pointer) AS pointer_count
+                   coalesce(w.demo, false) AS demo,
+                   CASE WHEN size(pointers) = 1 THEN release_ids[0] ELSE '' END
+                       AS current_release_id,
+                   size(pointers) AS pointer_count
             """,
             {"workspace_id": workspace_id},
         )
@@ -1134,7 +1144,8 @@ class GraphClient:
         """One guarded write publishes the whole package and moves one pointer.
 
         Every guard -- expected context revision, plan approval at this exact
-        version and fingerprint, the owning case, the expected prior release,
+        version and fingerprint, the owning case, at most one current pointer
+        and the expected prior release behind it,
         and the complete presence of every document and occurrence in scope --
         precedes the first write clause. A filter placed after a write is not a
         rollback, so an absent document or occurrence must prevent the release
@@ -1162,11 +1173,14 @@ class GraphClient:
               AND doc.id IN $document_ids
               AND occ.id IN $occurrence_ids
             OPTIONAL MATCH (w)-[pointer:CURRENT_RELEASE]->(prior:Release)
-            WITH w, p, c, decision, pointer, coalesce(prior.id, '') AS prior_id,
+            WITH w, p, c, decision, collect(DISTINCT pointer) AS pointers,
+                 collect(DISTINCT prior.id) AS prior_ids,
                  collect(DISTINCT doc) AS docs, collect(DISTINCT occ) AS occs
-            WHERE prior_id = $expected_prior_release_id
+            WHERE size(pointers) <= 1
+              AND coalesce(head(prior_ids), '') = $expected_prior_release_id
               AND size(docs) = $expected_document_count
               AND size(occs) = $expected_occurrence_count
+            WITH w, p, c, decision, head(pointers) AS pointer, docs
             DELETE pointer
             CREATE (r:Release {
                 id:$release_id, sequence:$sequence, issued_at:$issued_at,
