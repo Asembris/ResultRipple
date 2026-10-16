@@ -30,10 +30,16 @@ class ParsedBlock:
     kind: str
     attrs: dict[str, str]
     paragraphs: list[str] = field(default_factory=list)
+    terms: list[str] = field(default_factory=list)
+    definitions: list[str] = field(default_factory=list)
+
+
+# Text-bearing elements collected per block, and where each one is stored.
+_TEXT_TAGS = {"p": "paragraphs", "dt": "terms", "dd": "definitions"}
 
 
 class _DocumentParser(HTMLParser):
-    """Collect every block section, its data attributes, and its paragraphs."""
+    """Collect every block section, its data attributes, paragraphs and rows."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -41,7 +47,7 @@ class _DocumentParser(HTMLParser):
         self.meta: dict[str, str] = {}
         self._depth = 0
         self._current: ParsedBlock | None = None
-        self._in_paragraph = False
+        self._text_tag: str | None = None
         self._buffer: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -59,16 +65,16 @@ class _DocumentParser(HTMLParser):
         if self._current is not None:
             if tag == "section":
                 self._depth += 1
-            if tag == "p":
-                self._in_paragraph = True
+            if tag in _TEXT_TAGS:
+                self._text_tag = tag
                 self._buffer = []
 
     def handle_endtag(self, tag: str) -> None:
         if self._current is None:
             return
-        if tag == "p" and self._in_paragraph:
-            self._current.paragraphs.append(" ".join("".join(self._buffer).split()))
-            self._in_paragraph = False
+        if tag == self._text_tag:
+            getattr(self._current, _TEXT_TAGS[tag]).append(" ".join("".join(self._buffer).split()))
+            self._text_tag = None
             self._buffer = []
         elif tag == "section":
             self._depth -= 1
@@ -77,7 +83,7 @@ class _DocumentParser(HTMLParser):
                 self._current = None
 
     def handle_data(self, data: str) -> None:
-        if self._in_paragraph:
+        if self._text_tag is not None:
             self._buffer.append(data)
 
 
@@ -103,6 +109,22 @@ def _money(cents: int) -> str:
 
 def _cents(cents: int) -> str:
     return "1 cent" if cents == 1 else f"{cents} cents"
+
+
+def _display(cents: int, card_style: str) -> str:
+    return _money(cents) if card_style == "DOLLARS" else _cents(cents)
+
+
+# This module's own copy of the fixed wording around the typed blocks.
+_DECISION_LABELS = {"PROPOSED": "Proposed", "RETURNED_FOR_REVIEW": "Returned for review"}
+_UNASSESSED_LABEL = "Editorial context — not assessed by ResultRipple."
+
+
+def _basis_line(basis_claim_id: str) -> str:
+    return (
+        f"Recorded basis: the linked finding above ({basis_claim_id}). "
+        "ResultRipple records the disposition of this proposal; it does not decide it."
+    )
 
 
 def _expected_sentence(
@@ -303,6 +325,26 @@ def verify_package(
                 f"{document_id}:{occurrence['block_id']}:occurrence_identity",
                 block.attrs.get("data-occurrence-id") == occurrence["occurrence_id"],
             )
+            report.record(
+                f"{document_id}:{occurrence['block_id']}:claim_identity",
+                block.attrs.get("data-claim-id") == occurrence["claim_id"],
+                f"found {block.attrs.get('data-claim-id')}",
+            )
+            # The per-side evidence rows, rounded and formatted here, not by the engine.
+            expected_terms = [reference, subject, "Evidence"]
+            expected_rows = [
+                f"mean {_display(_round_half_up(left_mean), style)} per parcel "
+                f"over {counts.get(left_id, 0)} batches",
+                f"mean {_display(_round_half_up(right_mean), style)} per parcel "
+                f"over {counts.get(right_id, 0)} batches",
+                f"{comparison['comparison_id']} · dataset {comparison['dataset_id']} "
+                f"· minimum {comparison['min_n']} batches per side",
+            ]
+            report.record(
+                f"{document_id}:{occurrence['block_id']}:evidence_rows",
+                block.terms == expected_terms and block.definitions == expected_rows,
+                f"found {list(zip(block.terms, block.definitions))!r}",
+            )
             # 4b. No superseded assertion survives anywhere in the file.
             for other_relation in ("HIGHER_COST", "LOWER_COST", "EQUAL_COST"):
                 if other_relation == relation:
@@ -324,12 +366,14 @@ def verify_package(
             if block is None:
                 report.record(f"{document_id}:{block_spec['id']}:narrative", False, "missing")
                 continue
+            # Exactly the source paragraphs plus the label: nothing edited, nothing added.
             expected = [" ".join(p.split()) for p in block_spec["paragraphs"]]
-            actual = block.paragraphs[: len(expected)]
+            expected.append(_UNASSESSED_LABEL)
             report.record(
                 f"{document_id}:{block_spec['id']}:narrative_unchanged",
-                actual == expected,
-                f"found {actual!r}",
+                block.paragraphs == expected,
+                f"found {len(block.paragraphs)} paragraphs, expected {len(expected)}: "
+                f"{block.paragraphs!r}",
             )
             report.record(
                 f"{document_id}:{block_spec['id']}:scope_label",
@@ -353,6 +397,21 @@ def verify_package(
                 report.record(
                     f"{document_id}:decision_identity",
                     block.attrs.get("data-decision-id") == decision["decision_id"],
+                )
+                # The visible lines must say what the typed attributes say.
+                label = _DECISION_LABELS.get(decision["expected_status"], "")
+                status_line = f"{decision['title']} — {label}"
+                basis = decision["basis_claim_id"]
+                placed_claims = {occ["claim_id"] for occ in wanted}
+                report.record(
+                    f"{document_id}:decision_basis_placed",
+                    bool(basis) and basis in placed_claims,
+                    f"basis {basis}, placed {sorted(placed_claims)}",
+                )
+                report.record(
+                    f"{document_id}:decision_lines",
+                    block.paragraphs == [status_line, _basis_line(basis or "")],
+                    f"found {block.paragraphs!r}",
                 )
         else:
             report.record(f"{document_id}:no_unexpected_decision_block", not decision_blocks)

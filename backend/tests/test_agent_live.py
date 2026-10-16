@@ -158,6 +158,8 @@ def test_the_candidates_the_agent_staged_pass_independent_verification(seeded):
         decision={
             "decision_id": scope["decision"]["decision_id"],
             "expected_status": scope["decision"]["expected_status"],
+            "title": scope["decision"]["title"],
+            "basis_claim_id": scope["decision"]["basis_claim_id"],
         },
         artifacts=artifacts,
         expected_hashes=expected_hashes,

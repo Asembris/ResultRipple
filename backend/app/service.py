@@ -212,6 +212,7 @@ def _scope_record(context: CaseContext, intent: IntentFrame) -> dict[str, Any]:
         "dataset_sha": context.evidence.raw_sha,
         "comparison": {
             "comparison_id": context.definition.comparison_id,
+            "dataset_id": context.definition.dataset_id,
             "left_lane_id": context.definition.left_lane_id,
             "left_lane_name": context.definition.left_lane_name,
             "right_lane_id": context.definition.right_lane_id,
@@ -695,12 +696,14 @@ def issue_release(
             csv_path=csv_path,
             dataset_sha=context.evidence.raw_sha,
             memberships=context.evidence.memberships(),
-            comparison=scope["comparison"],
+            comparison={**scope["comparison"], "dataset_id": context.definition.dataset_id},
             documents=scope["documents"],
             occurrences=scope["occurrences"],
             decision={
                 "decision_id": context.authority.decision_id,
                 "expected_status": domain.DISPOSITION_DECISION_STATUS[plan["disposition"]],
+                "title": context.authority.decision_title,
+                "basis_claim_id": context.authority.basis_claim_id,
             },
             artifacts=package.documents,
             expected_hashes=approved_hashes,
