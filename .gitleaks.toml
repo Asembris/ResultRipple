@@ -1,0 +1,13 @@
+# Gitleaks configuration: the default rules, plus one narrow allowlist.
+[extend]
+useDefault = true
+
+# frontend/tests/finishedFixtures.ts replays a recorded agent run. Its tool-call
+# arguments include "idempotency_key" values built from the inspection id plus a
+# disposition suffix (for example "insp-<hash>-return"); generic-api-key flags one
+# of them on entropy. They are request keys, not credentials. Scoped to this one
+# file and this one rule, so every other rule still scans it.
+[[allowlists]]
+description = "Recorded agent tool-call idempotency keys in the finished-case fixture"
+targetRules = ["generic-api-key"]
+paths = ['''^frontend/tests/finishedFixtures\.ts$''']
