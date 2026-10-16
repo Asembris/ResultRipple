@@ -142,10 +142,10 @@
 <g id="b5">
 <rect x="56" y="522" width="534" height="58" rx="10" fill="#FBF8F2" stroke="#C9BFAE"/>
 <text x="76" y="546" class="m ink3" font-size="13">5</text>
-<text x="96" y="557" class="f ink" font-size="17">Noor issues plan v1</text>
+<text x="96" y="557" class="f ink" font-size="17">Noor tries to issue plan v1</text>
 <g id="stamp">
-<rect x="300" y="535" width="272" height="32" rx="6" fill="none" stroke="#9A3E22" stroke-width="2"/>
-<text x="436" y="557" class="m cor" font-size="15" font-weight="700" text-anchor="middle">REFUSED · AUTHORITY_CHANGED</text>
+<rect x="316" y="535" width="256" height="32" rx="6" fill="none" stroke="#9A3E22" stroke-width="2"/>
+<text x="444" y="557" class="m cor" font-size="15" font-weight="700" text-anchor="middle">REFUSED · AUTHORITY_CHANGED</text>
 </g></g>
 <g id="b6">
 <rect x="610" y="522" width="534" height="58" rx="10" fill="#FBF8F2" stroke="#C9BFAE"/>
