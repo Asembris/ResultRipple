@@ -82,6 +82,7 @@ def release_arguments(plan: dict[str, Any], context_revision: int) -> dict[str, 
         "expected_revision": context_revision,
         "expected_prior_release_id": plan["prior_release_id"] or "",
         "decision_id": domain.DECISION_ID,
+        "basis_claim_id": scope["decision"]["basis_claim_id"],
         "decision_status": "RETURNED_FOR_REVIEW",
         "release": {
             "release_id": "rel-should-never-exist",
@@ -188,6 +189,41 @@ def test_a_release_missing_an_occurrence_is_never_committed(seeded, ari, noor) -
     assert snapshot(graph) == before
     assert graph.release("rel-should-never-exist") is None
     assert helpers.workspace(ari)["decision"]["status"] == "PROPOSED"
+
+
+def test_a_decision_status_changes_only_through_its_recorded_basis(seeded, ari, noor) -> None:
+    """Audit C U5: no BASED_ON path from the decision to a placed claim, no release."""
+    graph = seeded["graph"]
+    plan = approved_plan(ari, noor)
+    revision = helpers.workspace(ari)["context_revision"]
+    graph.run(
+        "MATCH (:Decision {id:$decision})-[b:BASED_ON]->(:Claim) DELETE b",
+        {"decision": domain.DECISION_ID},
+    )
+    before = snapshot(graph)
+
+    with pytest.raises(GuardFailed) as refused:
+        graph.commit_release(**release_arguments(plan, revision))
+
+    assert refused.value.code == "RELEASE_GUARD_FAILED"
+    assert snapshot(graph) == before
+    assert graph.release("rel-should-never-exist") is None
+
+
+def test_a_basis_claim_outside_the_released_scope_is_never_committed(
+    seeded, ari, noor
+) -> None:
+    graph = seeded["graph"]
+    plan = approved_plan(ari, noor)
+    revision = helpers.workspace(ari)["context_revision"]
+    before = snapshot(graph)
+
+    arguments = release_arguments(plan, revision)
+    arguments["basis_claim_id"] = "claim-not-in-scope"
+    with pytest.raises(GuardFailed):
+        graph.commit_release(**arguments)
+
+    assert snapshot(graph) == before
 
 
 def test_a_stale_revision_leaves_the_current_package_untouched(seeded, ari, noor) -> None:

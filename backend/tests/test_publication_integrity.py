@@ -209,3 +209,62 @@ def test_another_plans_operation_id_never_issues_an_unapproved_plan(seeded, ari,
         seeded["version_one"]["release_id"]
     )
     assert seeded["graph"].plan(plan["plan_id"])["status"] == "AWAITING_REVIEW"
+
+
+# -- the impact traversal is a gate, not a display ------------------------------
+
+
+def _initial_publication_lanes(graph) -> list[dict]:
+    return graph.run(
+        """
+        MATCH (:CorrectionCase {id:$case})-[a:AFFECTS_LANE]->(lane:Lane)
+        RETURN lane.id AS lane_id, a.role AS role, a.source AS source ORDER BY role
+        """,
+        {"case": helpers.INITIAL_PUBLICATION_CASE_ID},
+    )
+
+
+EXPECTED_INITIAL_LANES = [
+    {"lane_id": domain.LANE_NORTH, "role": "LEFT", "source": "initial-publication"},
+    {"lane_id": domain.LANE_SOUTH, "role": "RIGHT", "source": "initial-publication"},
+]
+
+
+def test_the_seeded_initial_publication_affects_both_comparison_lanes(seeded):
+    assert _initial_publication_lanes(seeded["graph"]) == EXPECTED_INITIAL_LANES
+
+
+def test_the_fresh_initial_publication_affects_both_comparison_lanes(fresh):
+    assert _initial_publication_lanes(fresh["graph"]) == EXPECTED_INITIAL_LANES
+
+
+def test_a_case_whose_traversal_misses_a_registered_card_is_held(seeded, ari):
+    """An empty traversal never means "no dependencies"."""
+    helpers.apply_correction(ari)
+    seeded["graph"].run(
+        "MATCH (:CorrectionCase {id:$case})-[a:AFFECTS_LANE {role:'FROM'}]->() DELETE a",
+        {"case": domain.CASE_ID},
+    )
+
+    refused = helpers.stage(ari, key="traversal-gap")
+
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["code"] == "IMPACT_SCOPE_MISMATCH"
+    _nothing_new_is_current(ari, seeded)
+
+
+def test_a_traversal_gap_after_approval_blocks_the_release(seeded, ari, noor):
+    helpers.apply_correction(ari)
+    plan = helpers.staged_plan(ari)
+    assert helpers.approve(noor, plan).status_code == 200
+    seeded["graph"].run(
+        "MATCH (:CorrectionCase {id:$case})-[a:AFFECTS_LANE {role:'FROM'}]->() DELETE a",
+        {"case": domain.CASE_ID},
+    )
+
+    refused = helpers.release(noor, plan["plan_id"], "op-traversal-gap")
+
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["code"] == "IMPACT_SCOPE_MISMATCH"
+    _nothing_new_is_current(ari, seeded)
+

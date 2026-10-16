@@ -22,6 +22,7 @@ from .artifacts import ArtifactStore, RenderedPackage, render_package
 from .engine import (
     CaseContext,
     EngineHold,
+    assert_impact_covers_scope,
     compute_comparison,
     content_identity,
     execution_identity,
@@ -300,6 +301,8 @@ def stage_review(
                 },
             )
 
+        assert_impact_covers_scope(graph, case_id, context.scope)
+
         content_hash = domain.canonical_sha(
             content_identity(
                 context,
@@ -374,6 +377,7 @@ def refresh_review(
             raise WorkflowRefused("ALREADY_ISSUED", "this plan is already published")
 
         context = _context(graph, csv_path)
+        assert_impact_covers_scope(graph, case_id, context.scope)
         content_hash = domain.canonical_sha(
             content_identity(
                 context,
@@ -633,6 +637,7 @@ def issue_release(
                 context={"current_reviewer_id": context.authority.reviewer_id},
             )
         _assert_plan_fresh(plan, context)
+        assert_impact_covers_scope(graph, plan["case_id"], context.scope)
 
         approved_hashes: dict[str, str] = json.loads(plan["candidates"])
         scope = json.loads(plan["scope"])
@@ -702,6 +707,7 @@ def issue_release(
                 expected_revision=context.context_revision,
                 expected_prior_release_id=context.prior_release_id,
                 decision_id=context.authority.decision_id,
+                basis_claim_id=context.authority.basis_claim_id or "",
                 decision_status=domain.DISPOSITION_DECISION_STATUS[plan["disposition"]],
                 release={
                     "release_id": release_id,

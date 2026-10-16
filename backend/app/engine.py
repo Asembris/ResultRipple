@@ -679,6 +679,25 @@ def assert_publishable(context: CaseContext) -> None:
             )
 
 
+def assert_impact_covers_scope(graph: GraphClient, case_id: str, scope: PackageScope) -> None:
+    """The case's impact traversal and the registered inventory must agree.
+
+    The traversal walks from the lanes the case affects through comparison,
+    claim and occurrence to each document. The inventory is rooted at every
+    Document, so a missing edge cannot shrink it. Each is a cross-check on the
+    other: a card the traversal cannot reach, or a traversal row the inventory
+    does not hold, is a hold, never a narrower or wider package.
+    """
+    reached = {row["occurrence_id"] for row in graph.impacted_occurrences(case_id)}
+    registered = {occ.occurrence_id for occ in scope.occurrences}
+    if reached != registered:
+        raise EngineHold(
+            "IMPACT_SCOPE_MISMATCH",
+            f"the impact traversal from {case_id} reaches {sorted(reached)}, "
+            f"the registered inventory holds {sorted(registered)}",
+        )
+
+
 # -- identity: content versus permission --------------------------------------
 
 

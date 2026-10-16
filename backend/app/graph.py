@@ -1101,6 +1101,7 @@ class GraphClient:
         expected_revision: int,
         expected_prior_release_id: str,
         decision_id: str,
+        basis_claim_id: str,
         decision_status: str,
         release: dict[str, Any],
         document_ids: list[str],
@@ -1117,17 +1118,23 @@ class GraphClient:
 
         It never updates a single document pointer: the current release is one
         node covering both editions, or nothing is committed at all.
+
+        The decision status changes only through a real recorded path: the
+        decision must be BASED_ON the plan's basis claim, and that claim must be
+        placed by an occurrence inside the released scope.
         """
         row = self.run_one(
             """
             MATCH (w:Workspace {id:$workspace_id}),
                   (p:ReviewPlan {id:$plan_id})-[:FOR_CASE]->(c:CorrectionCase),
-                  (decision:Decision {id:$decision_id}),
+                  (decision:Decision {id:$decision_id})-[:BASED_ON]->(basis:Claim {id:$basis_claim_id}),
+                  (basis_use:Occurrence)-[:OF_CLAIM]->(basis),
                   (doc:Document),
                   (occ:Occurrence)
             WHERE w.context_revision = $expected_revision
               AND p.status = 'APPROVED' AND p.version = $plan_version
               AND p.execution_fingerprint = $fingerprint
+              AND basis_use.id IN $occurrence_ids
               AND doc.id IN $document_ids
               AND occ.id IN $occurrence_ids
             OPTIONAL MATCH (w)-[pointer:CURRENT_RELEASE]->(prior:Release)
@@ -1167,6 +1174,7 @@ class GraphClient:
                 "expected_revision": expected_revision,
                 "expected_prior_release_id": expected_prior_release_id,
                 "decision_id": decision_id,
+                "basis_claim_id": basis_claim_id,
                 "decision_status": decision_status,
                 "document_ids": sorted(document_ids),
                 "expected_document_count": len(set(document_ids)),
@@ -1179,7 +1187,8 @@ class GraphClient:
         if row is None:
             raise GuardFailed(
                 "RELEASE_GUARD_FAILED",
-                "context revision, plan approval, or prior release pointer did not hold",
+                "context revision, plan approval, decision basis path, or prior release "
+                "pointer did not hold",
             )
         return row
 
