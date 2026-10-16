@@ -347,3 +347,37 @@ def test_the_receipt_records_the_real_run(seeded, ari, noor) -> None:
     assert receipt["disposition"] == domain.DISPOSITION_RETURN_FOR_REVIEW
     assert receipt["verification"]["ok"] is True
     assert "Editorial narrative not assessed" in receipt["verification_scope"]
+
+
+# The seeded demo's Version 2 editions, pinned byte for byte. Any change to the
+# arithmetic, the grammar, a template or candidate-content identity changes these.
+VERSION_TWO_HASHES = {
+    domain.DOC_OPS: "626caeddad2366b8ce869ff67feec4a6ba6ae0ac18826baa9c7a8e19b9670468",
+    domain.DOC_MEMO: "ea0a575c718eb11bfe9aca4fd97e52bf83dc741368f129169cfd190e8b9c33e0",
+}
+
+
+def test_version_two_editions_are_pinned(seeded, ari, noor, sam, operator) -> None:
+    """The demo path: Noor approves, the rota moves to Sam, Sam approves and issues."""
+    helpers.apply_correction(ari)
+    plan = helpers.staged_plan(ari)
+    assert helpers.approve(noor, plan).status_code == 200
+    assert helpers.reassign(operator, helpers.workspace(ari)["context_revision"]).status_code == 200
+    refused = helpers.release(noor, plan["plan_id"], operation_id="op-noor")
+    assert refused.status_code == 409 and refused.json()["code"] == "AUTHORITY_CHANGED"
+
+    refreshed = ari.post(f"/cases/{domain.CASE_ID}/refresh-review")
+    assert refreshed.status_code == 200, refreshed.text
+    fresh_plan = refreshed.json()
+    assert json.loads(fresh_plan["candidates"]) == VERSION_TWO_HASHES
+    assert helpers.approve(sam, fresh_plan).status_code == 200
+    issued = helpers.release(sam, fresh_plan["plan_id"], operation_id="op-sam")
+    assert issued.status_code == 200, issued.text
+    released = issued.json()["release"]
+
+    for document_id, expected in VERSION_TWO_HASHES.items():
+        served = ari.get(f"/editions/{released['release_id']}/{document_id}")
+        assert served.status_code == 200
+        assert hashlib.sha256(served.content).hexdigest() == expected
+    receipt = ari.get(f"/releases/{released['release_id']}/receipt").json()
+    assert {k: v["sha256"] for k, v in receipt["artifacts"].items()} == VERSION_TWO_HASHES
