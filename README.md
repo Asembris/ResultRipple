@@ -19,6 +19,8 @@ reviewer issue the new editions.**
 [![FalkorDB 6.0.2](https://img.shields.io/badge/FalkorDB-6.0.2-E3876A?style=flat)](docs/graph-model.md)
 [![NVIDIA Nemotron](https://img.shields.io/badge/NVIDIA-Nemotron_3_Super_120B-76B900?style=flat&logo=nvidia&logoColor=white)](docs/agent.md)
 [![CI](https://github.com/Asembris/ResultRipple/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Asembris/ResultRipple/actions/workflows/ci.yml)
+[![Secret scan](https://github.com/Asembris/ResultRipple/actions/workflows/secret-scan.yml/badge.svg?branch=main)](https://github.com/Asembris/ResultRipple/actions/workflows/secret-scan.yml)
+[![CodeQL](https://github.com/Asembris/ResultRipple/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/Asembris/ResultRipple/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-948B7D?style=flat)](LICENSE)
 
 </div>
