@@ -10,7 +10,7 @@
  *   fetchPlan(id)    -> Plan        (GET /plans/{plan_id})
  */
 import type { Comparison, Plan, PlanSummary, Workspace } from "../types";
-import { contradicted } from "../workflow";
+import { contradicted, dispositionLabel } from "../workflow";
 
 export type LaneKey = "north" | "south" | "pilot";
 export type ReviewerKey = "noor" | "sam" | "unknown";
@@ -457,6 +457,6 @@ function sceneLabels(
     planCoverage: latest
       ? `${latest.covered_occurrence_ids.length} occurrences · ${Object.keys(latest.candidates).length} documents`
       : "",
-    planDisposition: text(latest?.disposition),
+    planDisposition: text(latest?.disposition ? dispositionLabel(latest.disposition) : null),
   };
 }

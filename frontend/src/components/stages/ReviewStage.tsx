@@ -117,7 +117,7 @@ export default function ReviewStage({ context }: { context: StageContext }) {
           className="rr-secondary rr-secondary--self"
           onClick={() => context.openViewer("candidate")}
         >
-          Preview both candidates
+          {plan.status === "ISSUED" ? "Read the issued editions" : "Preview both drafts · not published"}
         </button>
       </div>
 

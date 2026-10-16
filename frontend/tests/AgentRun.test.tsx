@@ -136,10 +136,12 @@ function stubApi({
 /** The investigation panel, opening it the way a user does when it is the next step. */
 async function agentPanel() {
   await screen.findByRole("complementary", { name: /workflow/i });
-  const open = await screen
-    .findByRole("button", { name: /Ask the agent to prepare the review/i })
-    .catch(() => null);
-  if (open) fireEvent.click(open);
+  // A signed-out visitor lands on the desk, so open the step from the stepper.
+  const step = screen.queryByRole("button", { name: "View step 3: Investigation" });
+  if (step && !(step as HTMLButtonElement).disabled && !screen.queryByRole("region", { name: /Ask the agent/i })) {
+    const open = screen.queryByRole("button", { name: /Ask the agent to prepare the review/i });
+    fireEvent.click(open ?? step);
+  }
   return within(await screen.findByRole("region", { name: /Ask the agent/i }));
 }
 

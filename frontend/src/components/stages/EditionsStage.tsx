@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { editionUrl, receiptUrl } from "../../api";
 import type { Receipt } from "../../types";
-import { RELATION_PHRASE, money } from "../../workflow";
+import { RELATION_PHRASE, goalLabel, money } from "../../workflow";
 import type { StageContext } from "./context";
 
 /**
@@ -102,7 +102,7 @@ export default function EditionsStage({ context }: { context: StageContext }) {
   if (receipt?.interpreted_goal) {
     ledger.push({
       k: "Interpreted goal",
-      v: `${receipt.interpreted_goal}${receipt.alternative_proposed ? " · alternative proposed" : ""}`,
+      v: `${goalLabel(receipt.interpreted_goal)}${receipt.alternative_proposed ? " · alternative proposed" : ""}`,
     });
   }
   if (receipt?.dataset_sha) {

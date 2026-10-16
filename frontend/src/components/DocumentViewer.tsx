@@ -33,7 +33,7 @@ export default function DocumentViewer({
 
   const tabs: { id: ViewerTab; label: string }[] = [];
   if (release) tabs.push({ id: "current", label: `Version ${release.sequence} · current edition` });
-  if (hasCandidates) tabs.push({ id: "candidate", label: "Candidate · corrected draft" });
+  if (hasCandidates) tabs.push({ id: "candidate", label: "Draft · not published" });
   const active: ViewerTab = tabs.some((entry) => entry.id === tab) ? tab : (tabs[0]?.id ?? "current");
 
   const note =
@@ -168,7 +168,7 @@ function Sheet({
         <div className="rr-paper__kicker">
           <span>{doc.owner_name ? `Owner ${doc.owner_name}` : doc.document_id}</span>
           <span>
-            {mode === "candidate" ? "Candidate · draft" : `Version ${release?.sequence ?? ""}`}
+            {mode === "candidate" ? "Draft · not published" : `Version ${release?.sequence ?? ""}`}
           </span>
         </div>
         <h2 className="rr-paper__title">{doc.title}</h2>

@@ -157,3 +157,15 @@ describe("the finished case's before and after", () => {
     expect(view.getByText(/v2 · return the proposal for review/)).toBeDefined();
   });
 });
+
+describe("a signed-out visitor", () => {
+  it("lands on the desk and keeps the purpose line in view", async () => {
+    stubApi();
+    render(<App />);
+    await screen.findByRole("complementary", { name: /workflow/i });
+    expect(announced()).toBe("Step 1 of 7: Desk");
+    expect(
+      screen.getByText(/every linked report and decision is corrected and re-approved by\s+the right person/),
+    ).toBeDefined();
+  });
+});
