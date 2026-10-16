@@ -34,8 +34,11 @@ RETURN DISTINCT cmp.id AS comparison_id, cl.id AS claim_id,
 ORDER BY document_id, occurrence_id
 ```
 
-A real impact traversal, and never sufficient on its own: query C runs beside it
-so a missing edge cannot shrink the scope.
+A real traversal from the lanes the case affects, used as a cross-check rather
+than as the scope: query C is the scope, and the engine holds
+`IMPACT_SCOPE_MISMATCH` at staging, refresh and release unless both name exactly
+the same occurrences. A missing edge therefore cannot shrink the scope, and an
+empty traversal is a hold.
 
 ## C. Every registered card in the package
 
@@ -69,7 +72,11 @@ RETURN decision.id AS decision_id, decision.status AS decision_status,
 ```
 
 A removed basis is a visible null, not a vanished decision. Zero or several
-authority paths hold the case; exactly one is authenticated server-side.
+authority paths hold the case; exactly one is authenticated server-side. The
+decision itself is a fixed primitive looked up by id, not reached by traversal.
+Before any bytes are rendered the engine requires its basis to exist
+(`MISSING_DECISION_BASIS`) and to be a claim placed in the document carrying the
+decision block (`MISBOUND_PROVENANCE`).
 
 ## E. Applying the correction — one guarded mutation
 
@@ -239,9 +246,10 @@ RETURN decision.id AS decision_id, cl.id AS claim_id,
        w.context_revision AS context_revision
 ```
 
-After authoring, correction impact (query B) finds the authored claim, both
-occurrences and the decision by traversal from the case's affected lanes. No
-document list is supplied anywhere.
+After authoring, the correction case's traversal (query B) reaches the authored
+claim and both occurrences, and must equal the inventory (query C). The decision
+is read by id (query D); the release changes its status only through its
+recorded basis path (query F). No document list is supplied anywhere.
 
 ## Running them yourself
 

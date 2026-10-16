@@ -51,8 +51,9 @@ async def lifespan(_: FastAPI):
         if interrupted:
             logger.warning("marked %s unfinished agent job(s) as interrupted", interrupted)
     except GraphUnavailable as exc:
-        # The API still serves existing immutable editions and reports why new
-        # graph-backed work is unavailable.
+        # The API still starts and reports why graph-backed work is unavailable.
+        # Issued editions are not served meanwhile: each is read through the path
+        # and hash its release recorded in the graph, so reads return 503 too.
         logger.warning("could not audit agent jobs at startup: %s", exc.code)
     yield
 
