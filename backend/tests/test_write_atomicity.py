@@ -19,7 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import domain
-from app.graph import GraphClient, GuardFailed
+from app.graph import GraphClient, GraphUnavailable, GuardFailed
 from tests import helpers
 
 MISSING_DOCUMENT = "doc-does-not-exist"
@@ -140,6 +140,111 @@ def test_a_clashing_plan_id_does_not_create_a_second_plan(seeded, ari: TestClien
 
     assert snapshot(graph) == before
     assert len(graph.plans_for_case(domain.CASE_ID)) == 1
+
+
+def test_a_crash_right_after_the_refresh_plan_write_leaves_one_live_plan(
+    seeded, ari, noor, sam, operator, monkeypatch
+) -> None:
+    """The process dies on the first graph call after the new plan is written.
+
+    When retiring the superseded plan was a second write, this exact crash left
+    plan v2 awaiting Sam beside Noor's v1, never marked superseded -- and a retry
+    could not repair it, because v2 already carried the current reviewer.
+    """
+    graph = seeded["graph"]
+    helpers.apply_correction(ari)
+    plan = helpers.staged_plan(ari)
+    assert helpers.approve(noor, plan).status_code == 200
+    helpers.reassign(operator, helpers.workspace(ari)["context_revision"])
+
+    real_run = GraphClient.run
+    real_create_plan = GraphClient.create_plan
+    armed = {"after_create": False, "crashed": False}
+
+    def run(self, query, params=None):
+        if armed["after_create"]:
+            armed["after_create"], armed["crashed"] = False, True
+            raise GraphUnavailable("GRAPH_UNREACHABLE", "simulated crash after the plan write")
+        return real_run(self, query, params)
+
+    def create_plan(self, **kwargs):
+        def crash_after_first_query(inner, query, params=None):
+            rows = real_run(inner, query, params)
+            armed["after_create"] = True
+            monkeypatch.setattr(GraphClient, "run", run)
+            return rows
+
+        monkeypatch.setattr(GraphClient, "run", crash_after_first_query)
+        return real_create_plan(self, **kwargs)
+
+    monkeypatch.setattr(GraphClient, "create_plan", create_plan)
+    crashed = ari.post(f"/cases/{domain.CASE_ID}/refresh-review")
+    monkeypatch.setattr(GraphClient, "run", real_run)
+    monkeypatch.setattr(GraphClient, "create_plan", real_create_plan)
+
+    assert armed["crashed"] is True
+    assert crashed.status_code == 503, crashed.text
+
+    # The retry finds nothing left to reconcile and changes nothing.
+    before_retry = snapshot(graph)
+    retried = ari.post(f"/cases/{domain.CASE_ID}/refresh-review")
+    assert retried.status_code == 409, retried.text
+    assert retried.json()["code"] == "NO_AUTHORITY_CHANGE"
+    assert snapshot(graph) == before_retry
+
+    plans = graph.plans_for_case(domain.CASE_ID)
+    assert [p["version"] for p in plans] == [plan["version"], plan["version"] + 1]
+    live = [p for p in plans if p["status"] in {"AWAITING_REVIEW", "APPROVED"}]
+    assert [p["plan_id"] for p in live] == [plans[-1]["plan_id"]]
+    assert live[0]["assigned_reviewer_id"] == domain.PERSON_SAM
+
+    retired = graph.plan(plan["plan_id"])
+    assert retired["status"] == "SUPERSEDED"
+    assert retired["superseded_by"] == plans[-1]["plan_id"]
+    assert retired["invalidation_reason"] == "AUTHORITY_CHANGED"
+
+    # The surviving version is fully usable by the current reviewer.
+    refreshed = ari.get(f"/plans/{plans[-1]['plan_id']}").json()
+    assert helpers.approve(sam, refreshed).status_code == 200
+    issued = helpers.release(sam, refreshed["plan_id"], operation_id="op-after-crash")
+    assert issued.status_code == 200, issued.text
+
+
+def test_a_superseded_plan_must_exist_on_the_same_case(seeded, ari: TestClient) -> None:
+    graph = seeded["graph"]
+    helpers.apply_correction(ari)
+    before = snapshot(graph)
+
+    with pytest.raises(GuardFailed) as refused:
+        graph.create_plan(
+            case_id=domain.CASE_ID,
+            plan=_plan_properties("plan-atomicity-probe"),
+            occurrence_ids=[domain.OCC_OPS, domain.OCC_MEMO],
+            reviewer_id=domain.PERSON_NOOR,
+            supersedes_plan_id="plan-does-not-exist",
+        )
+
+    assert refused.value.code == "PLAN_WRITE_FAILED"
+    assert snapshot(graph) == before
+
+
+def test_an_issued_plan_is_never_superseded(seeded, ari, noor) -> None:
+    graph = seeded["graph"]
+    plan = approved_plan(ari, noor)
+    assert helpers.release(noor, plan["plan_id"]).status_code == 200
+    before = snapshot(graph)
+
+    with pytest.raises(GuardFailed):
+        graph.create_plan(
+            case_id=domain.CASE_ID,
+            plan=_plan_properties("plan-atomicity-probe"),
+            occurrence_ids=[domain.OCC_OPS, domain.OCC_MEMO],
+            reviewer_id=domain.PERSON_NOOR,
+            supersedes_plan_id=plan["plan_id"],
+        )
+
+    assert snapshot(graph) == before
+    assert graph.plan(plan["plan_id"])["status"] == "ISSUED"
 
 
 # -- commit_release -----------------------------------------------------------
