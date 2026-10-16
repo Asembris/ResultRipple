@@ -192,3 +192,33 @@ test("the current reviewer finishes the case and both editions are real", async 
   await expect(panel(page).getByText(/Editorial narrative not assessed/)).toBeVisible();
   await expect(page.getByText(/truth verified/i)).toHaveCount(0);
 });
+
+test("the finished case still tells its whole story", async ({ page }) => {
+  await waitForApp(page);
+
+  // Step 3 opens on the recorded run instead of jumping to the end.
+  await page.getByRole("button", { name: "View step 3: Investigation" }).click();
+  const agent = page.getByRole("region", { name: /Ask the agent/i });
+  await expect(agent).toBeVisible();
+  const ready = (await (await page.request.get("/api/ready")).json()) as {
+    agent?: { configured?: boolean };
+  };
+  if (ready.agent?.configured === true) {
+    await expect(agent.getByText(/investigated registered impact/)).toBeVisible({ timeout: 20_000 });
+  } else {
+    console.log("No agent configured: the review was staged manually, so there is no run to show.");
+  }
+  await page.waitForTimeout(2_000);
+  await expect(page.locator(".rr-sr-only")).toHaveText("Step 3 of 7: Investigation");
+
+  // Steps 5 and 6 read the authority history from the plans the server recorded.
+  await page.getByRole("button", { name: "View step 5: Authority" }).click();
+  await expect(panel(page).getByText("Review authority moved from Noor to Sam.")).toBeVisible();
+  await expect(panel(page).getByRole("button", { name: /Reassign review authority/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "View step 6: Fresh approval" }).click();
+  await expect(panel(page).getByText("Noor approved these same files.")).toBeVisible();
+  await expect(
+    panel(page).getByText("The release was refused because the reviewer changed (AUTHORITY_CHANGED)."),
+  ).toBeVisible();
+  await expect(panel(page).getByText("Sam approved again.")).toBeVisible();
+});

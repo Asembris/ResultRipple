@@ -22,6 +22,17 @@ export const STEP_NAMES = [
   "Editions",
 ] as const;
 
+/** The same steps, short enough to keep every label visible on a laptop screen. */
+export const STEP_SHORT_NAMES = [
+  "Desk",
+  "Correct",
+  "Agent",
+  "Review",
+  "Authority",
+  "Re-approve",
+  "Editions",
+] as const;
+
 export type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 /** An authoring-start workspace's first edition. It is not a correction. */
@@ -153,6 +164,28 @@ export const RELATION_PHRASE: Record<string, string> = {
   EQUAL_COST: "equal",
   WITHHELD: "withheld",
 };
+
+/** The plain words for the typed goal the agent read from a request. */
+export const GOAL_LABEL: Record<string, string> = {
+  CORRECT_FACTS: "correct the published facts",
+  PRESERVE_PROPOSAL: "keep the proposal open for review",
+  RETAIN_CHEAPER_CLAIM: "keep the cheaper claim",
+  UNKNOWN: "unclear",
+};
+
+/** The plain words for a plan's typed decision disposition. */
+export const DISPOSITION_LABEL: Record<string, string> = {
+  RETURN_FOR_REVIEW: "return the proposal for review",
+  HOLD_FOR_CLARIFICATION: "hold the proposal for clarification",
+  NO_CHANGE: "leave the proposal unchanged",
+};
+
+export const goalLabel = (goal: string): string => GOAL_LABEL[goal] ?? goal.toLowerCase();
+export const dispositionLabel = (disposition: string): string =>
+  DISPOSITION_LABEL[disposition] ?? disposition.replace(/_/g, " ").toLowerCase();
+
+/** A case whose revision has been issued. Its history is read, not acted on. */
+export const caseFinished = (kase: CorrectionCase | null): boolean => kase?.status === "ISSUED";
 
 export const titleCase = (value: string): string =>
   value.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());

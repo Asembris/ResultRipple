@@ -869,6 +869,7 @@ class GraphClient:
                    p.acknowledged_alternative AS acknowledged_alternative,
                    p.invalidation_reason AS invalidation_reason,
                    p.superseded_by AS superseded_by,
+                   p.refused_action AS refused_action, p.refused_at AS refused_at,
                    p.idempotency_key AS idempotency_key,
                    c.id AS case_id, approver.id AS approved_by,
                    reviewer.id AS assigned_reviewer_id,
@@ -1065,15 +1066,20 @@ class GraphClient:
             raise GuardFailed("REJECT_GUARD_FAILED", "plan is not awaiting this reviewer")
         return row
 
-    def mark_plan_stale(self, *, plan_id: str, reason: str) -> None:
-        """Keep a previously valid approval as invalid history, never as permission."""
+    def mark_plan_stale(self, *, plan_id: str, reason: str, action: str, at: str) -> None:
+        """Keep a previously valid approval as invalid history, never as permission.
+
+        The same write records which attempt was refused (`APPROVAL` or `RELEASE`)
+        and when, so the history can say so later. A supersede leaves both alone.
+        """
         self.run(
             """
             MATCH (p:ReviewPlan {id:$plan_id})
             WHERE p.status IN ['APPROVED', 'AWAITING_REVIEW']
-            SET p.status = 'STALE_AUTHORITY', p.invalidation_reason = $reason
+            SET p.status = 'STALE_AUTHORITY', p.invalidation_reason = $reason,
+                p.refused_action = $action, p.refused_at = $at
             """,
-            {"plan_id": plan_id, "reason": reason},
+            {"plan_id": plan_id, "reason": reason, "action": action, "at": at},
         )
 
     def invalidate_plan(self, *, plan_id: str, reason: str, at: str) -> dict[str, Any]:

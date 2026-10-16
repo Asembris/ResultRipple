@@ -4,6 +4,13 @@
 	admin off
 }
 
+# Container-local liveness for the Compose healthcheck. Bound to loopback inside
+# the container and never published, so it adds nothing reachable from outside.
+http://127.0.0.1:8081 {
+	bind 127.0.0.1
+	respond "ok" 200
+}
+
 {$SITE_HOST} {
 	encode zstd gzip
 

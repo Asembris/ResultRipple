@@ -1,5 +1,5 @@
 import { approvePlan, rejectPlan } from "../../api";
-import { money } from "../../workflow";
+import { dispositionLabel, money, titleCase } from "../../workflow";
 import type { StageContext } from "./context";
 import { useAcknowledgement } from "./useAcknowledgement";
 
@@ -20,6 +20,10 @@ export default function ReviewStage({ context }: { context: StageContext }) {
   const currentReviewerId = workspace.decision?.current_reviewer_id ?? null;
   const assignedIsCurrent = plan.assigned_reviewer_id === currentReviewerId;
   const approved = plan.status === "APPROVED";
+  // The proposal's status when this plan was staged, and the one it proposes,
+  // both as the plan recorded them.
+  const statusBefore = titleCase(plan.scope?.decision.current_status ?? workspace.decision?.status ?? "");
+  const statusAfter = titleCase(plan.scope?.decision.expected_status ?? expectedStatus(plan.disposition));
 
   return (
     <div className="rr-stage">
@@ -38,7 +42,7 @@ export default function ReviewStage({ context }: { context: StageContext }) {
         <div>
           <dt>Plan</dt>
           <dd>
-            v{plan.version} · {plan.disposition}
+            v{plan.version} · {dispositionLabel(plan.disposition)}
           </dd>
         </div>
         <div>
@@ -95,8 +99,14 @@ export default function ReviewStage({ context }: { context: StageContext }) {
                 <div className="rr-candidate__now">{assessment?.current.text ?? ""}</div>
                 {hasDecision && workspace.decision && (
                   <div className="rr-candidate__decision">
-                    Proposal status: <s>{workspace.decision.status.replace(/_/g, " ").toLowerCase()}</s>{" "}
-                    → <em>{expectedStatus(plan.disposition)}</em>
+                    Proposal status:{" "}
+                    {statusBefore && statusBefore !== statusAfter ? (
+                      <>
+                        <s>{statusBefore}</s> → <em>{statusAfter}</em>
+                      </>
+                    ) : (
+                      <em>{statusAfter}</em>
+                    )}
                   </div>
                 )}
               </div>
@@ -107,7 +117,7 @@ export default function ReviewStage({ context }: { context: StageContext }) {
           className="rr-secondary rr-secondary--self"
           onClick={() => context.openViewer("candidate")}
         >
-          Preview both candidates
+          {plan.status === "ISSUED" ? "Read the issued editions" : "Preview both drafts · not published"}
         </button>
       </div>
 

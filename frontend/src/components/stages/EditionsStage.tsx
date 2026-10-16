@@ -1,31 +1,9 @@
 import { useEffect, useState } from "react";
 
 import { editionUrl, receiptUrl } from "../../api";
-import { RELATION_PHRASE, money } from "../../workflow";
+import type { Receipt } from "../../types";
+import { RELATION_PHRASE, goalLabel, money } from "../../workflow";
 import type { StageContext } from "./context";
-
-/** The release receipt, as the server recorded it. */
-interface Receipt {
-  release_id?: string;
-  issued_at?: string;
-  issued_by?: string;
-  plan_id?: string;
-  plan_version?: number;
-  approved_by?: string;
-  approved_at?: string;
-  acknowledged_alternative?: boolean;
-  raw_request?: string;
-  interpreted_goal?: string;
-  alternative_proposed?: boolean;
-  disposition?: string;
-  approved_context_revision?: number;
-  authority_at_issue?: { team_id?: string; reviewer_id?: string; reviewer_name?: string };
-  dataset_sha?: string;
-  membership_sha?: string;
-  artifacts?: Record<string, { path: string; sha256: string; title: string }>;
-  verification?: Record<string, unknown>;
-  verification_scope?: string;
-}
 
 /**
  * Step 7 — what was issued.
@@ -124,7 +102,7 @@ export default function EditionsStage({ context }: { context: StageContext }) {
   if (receipt?.interpreted_goal) {
     ledger.push({
       k: "Interpreted goal",
-      v: `${receipt.interpreted_goal}${receipt.alternative_proposed ? " · alternative proposed" : ""}`,
+      v: `${goalLabel(receipt.interpreted_goal)}${receipt.alternative_proposed ? " · alternative proposed" : ""}`,
     });
   }
   if (receipt?.dataset_sha) {

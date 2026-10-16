@@ -489,7 +489,9 @@ def approve_plan(
 
         context = _context(graph, csv_path)
         if context.authority.reviewer_id != plan["assigned_reviewer_id"]:
-            graph.mark_plan_stale(plan_id=plan_id, reason="AUTHORITY_CHANGED")
+            graph.mark_plan_stale(
+                plan_id=plan_id, reason="AUTHORITY_CHANGED", action="APPROVAL", at=_now()
+            )
             raise WorkflowRefused(
                 "AUTHORITY_CHANGED",
                 "the assigned reviewer changed; refresh the review",
@@ -657,7 +659,9 @@ def issue_release(
         context = _context(graph, csv_path)
 
         if context.authority.reviewer_id != plan["assigned_reviewer_id"]:
-            graph.mark_plan_stale(plan_id=plan_id, reason="AUTHORITY_CHANGED")
+            graph.mark_plan_stale(
+                plan_id=plan_id, reason="AUTHORITY_CHANGED", action="RELEASE", at=_now()
+            )
             raise WorkflowRefused(
                 "AUTHORITY_CHANGED",
                 "the approval was recorded under a reviewer who no longer holds this case",

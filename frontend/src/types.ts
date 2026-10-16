@@ -340,6 +340,9 @@ export interface Plan {
   acknowledged_alternative: boolean | null;
   invalidation_reason: string | null;
   superseded_by: string | null;
+  /** The attempt refused for a changed authority, `APPROVAL` or `RELEASE`, when one was made. */
+  refused_action?: string | null;
+  refused_at?: string | null;
   case_id: string;
   approved_by: string | null;
   assigned_reviewer_id: string | null;
@@ -361,6 +364,42 @@ export interface PlanScope {
   authority: { reviewer_id: string; reviewer_name: string; team_name: string | null };
   requested_focus: string[];
   verification_scope: string;
+}
+
+/** The arithmetic the independent verifier derived for one side of a release. */
+export interface DerivedSide {
+  lane_id: string;
+  count: number;
+  /** Exact mean in cents, as a decimal or fraction string. */
+  mean_cents: string;
+  total_cents: number;
+}
+
+/** The release receipt, as the server recorded it. */
+export interface Receipt {
+  release_id?: string;
+  issued_at?: string;
+  issued_by?: string;
+  plan_id?: string;
+  plan_version?: number;
+  approved_by?: string;
+  approved_at?: string;
+  acknowledged_alternative?: boolean;
+  raw_request?: string;
+  interpreted_goal?: string;
+  alternative_proposed?: boolean;
+  disposition?: string;
+  approved_context_revision?: number;
+  authority_at_issue?: { team_id?: string; reviewer_id?: string; reviewer_name?: string };
+  dataset_sha?: string;
+  membership_sha?: string;
+  artifacts?: Record<string, { path: string; sha256: string; title: string }>;
+  verification?: {
+    ok?: boolean;
+    derived?: { left?: DerivedSide; right?: DerivedSide; relation?: Relation; magnitude_cents?: number };
+    checks?: { name: string; passed: boolean; detail: string }[];
+  };
+  verification_scope?: string;
 }
 
 export interface ApiFailure {

@@ -1,4 +1,12 @@
-import type { Actor, AgentJob, AgentRunSummary, Plan, ReadinessResponse, Workspace } from "./types";
+import type {
+  Actor,
+  AgentJob,
+  AgentRunSummary,
+  Plan,
+  ReadinessResponse,
+  Receipt,
+  Workspace,
+} from "./types";
 
 /**
  * Same-origin by default: the dev server proxies `/api` to the backend so the
@@ -244,5 +252,7 @@ export const editionUrl = (releaseId: string, documentId: string, download = fal
   `${BASE_URL}/editions/${releaseId}/${documentId}${download ? "?download=1" : ""}`;
 
 export const receiptUrl = (releaseId: string) => `${BASE_URL}/releases/${releaseId}/receipt`;
+
+export const fetchReceipt = (releaseId: string) => request<Receipt>(`/releases/${releaseId}/receipt`);
 
 export const apiBaseUrl = BASE_URL;

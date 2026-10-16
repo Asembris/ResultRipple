@@ -66,7 +66,9 @@ export default function AppShell({
   const [toast, setToast] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<ApiRefusal | null>(null);
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<Step | null>(null);
+  // A signed-out visitor starts at the desk, where the story begins. A
+  // signed-in person lands where the case currently is.
+  const [view, setView] = useState<Step | null>(() => (actor ? null : 1));
   const [animate, setAnimate] = useState(false);
 
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -234,8 +236,12 @@ export default function AppShell({
 
   const width = panelWidth(viewport);
   const insets: GraphInsets = useMemo(
-    () => (introDone ? { top: 120, right: width, bottom: 190, left: 0 } : { top: 0, right: 0, bottom: 0, left: 0 }),
-    [introDone, width],
+    // Below 1600 px the left lane labels need room the graph would otherwise take.
+    () =>
+      introDone
+        ? { top: 120, right: width, bottom: 190, left: viewport < 1600 ? 110 : 0 }
+        : { top: 0, right: 0, bottom: 0, left: 0 },
+    [introDone, width, viewport],
   );
 
   const chrome = {
@@ -360,6 +366,10 @@ export default function AppShell({
       </div>
 
       <div className="rr-graphnote" style={{ opacity: introDone ? 1 : 0 }}>
+        <span className="rr-graphnote__purpose">
+          When evidence changes, every linked report and decision is corrected and re-approved by
+          the right person.
+        </span>
         <span className="rr-graphnote__live">Live FalkorDB context · context rev {workspace.context_revision}</span>
         <span className="rr-graphnote__hint">
           Hover to trace a path · click to inspect · drag to orbit · double-click to recentre

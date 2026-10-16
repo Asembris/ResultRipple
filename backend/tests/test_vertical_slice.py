@@ -348,6 +348,20 @@ def test_the_receipt_records_the_real_run(seeded, ari, noor) -> None:
     assert receipt["verification"]["ok"] is True
     assert "Editorial narrative not assessed" in receipt["verification_scope"]
 
+    # A passing check's detail says what was checked, never a failure condition.
+    checks = {check["name"]: check for check in receipt["verification"]["checks"]}
+    absent = checks[f"{domain.DOC_OPS}:ops-finding-cost:no_lower_cost"]
+    assert absent["passed"] is True
+    assert absent["detail"].startswith("searched the file for the contradicted sentence")
+    labels = [check for name, check in checks.items() if name.endswith(":scope_label")]
+    assert labels and all(check["passed"] for check in labels)
+    assert all(check["detail"].endswith("data-assessed=false") for check in labels)
+
+    # The receipt is served as UTF-8, with no double-encoded separator.
+    raw = ari.get(f"/releases/{released['release_id']}/receipt").content
+    assert "·".encode("utf-8") in raw
+    assert "Â·".encode("utf-8") not in raw
+
 
 # The seeded demo's Version 2 editions, pinned byte for byte. Any change to the
 # arithmetic, the grammar, a template or candidate-content identity changes these.

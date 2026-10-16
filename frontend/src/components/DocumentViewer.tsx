@@ -33,7 +33,7 @@ export default function DocumentViewer({
 
   const tabs: { id: ViewerTab; label: string }[] = [];
   if (release) tabs.push({ id: "current", label: `Version ${release.sequence} · current edition` });
-  if (hasCandidates) tabs.push({ id: "candidate", label: "Candidate · corrected draft" });
+  if (hasCandidates) tabs.push({ id: "candidate", label: "Draft · not published" });
   const active: ViewerTab = tabs.some((entry) => entry.id === tab) ? tab : (tabs[0]?.id ?? "current");
 
   const note =
@@ -42,6 +42,11 @@ export default function DocumentViewer({
       : release
         ? `Issued ${release.issued_at} · release ${release.release_id}`
         : "No edition has been issued yet";
+
+  // What the current release itself changed in each registered card.
+  const snapshots: ReleaseSnapshot[] = release?.occurrence_snapshots
+    ? (JSON.parse(release.occurrence_snapshots) as ReleaseSnapshot[])
+    : [];
 
   const sheets = workspace.scope.filter((doc) =>
     active === "candidate"
@@ -53,7 +58,9 @@ export default function DocumentViewer({
     <div className="rr-viewer" role="dialog" aria-modal="true" aria-label="Report viewer">
       <div className="rr-viewer__bar">
         <div className="rr-viewer__title">Reports</div>
-        {tabs.length > 0 && (
+        {/* One version is a label, not a control: there is nothing to switch to. */}
+        {tabs.length === 1 && <div className="rr-viewer__version">{tabs[0].label}</div>}
+        {tabs.length > 1 && (
           <div className="rr-viewer__tabs" role="tablist">
             {tabs.map((entry) => (
               <button
@@ -83,6 +90,11 @@ export default function DocumentViewer({
               key={`${active}-${doc.document_id}`}
               doc={doc}
               assessment={workspace.assessment.find((entry) => entry.document_id === doc.document_id) ?? null}
+              snapshot={
+                active === "current"
+                  ? (snapshots.find((entry) => entry.document_id === doc.document_id) ?? null)
+                  : null
+              }
               release={release}
               mode={active}
               url={
@@ -106,9 +118,19 @@ export default function DocumentViewer({
   );
 }
 
+/** One registered card as a release recorded it: the wording it replaced and the new one. */
+interface ReleaseSnapshot {
+  document_id: string;
+  previous?: { text?: string };
+  current?: { text?: string };
+  relation_changed?: boolean;
+  magnitude_changed?: boolean;
+}
+
 function Sheet({
   doc,
   assessment,
+  snapshot,
   release,
   mode,
   url,
@@ -116,13 +138,31 @@ function Sheet({
 }: {
   doc: DocumentScope;
   assessment: Assessment | null;
+  snapshot: ReleaseSnapshot | null;
   release: Release | null;
   mode: ViewerTab;
   url: string | null;
   downloadUrl: string | null;
 }) {
   const bytes = usePaperBytes(url);
-  const changed = contradicted(assessment);
+  const outdated = contradicted(assessment);
+  // An issued edition is described by its own release record: whether that
+  // release corrected the card, and what it said before.
+  const corrected =
+    mode === "current" && !!snapshot?.previous?.text && !!(snapshot.relation_changed || snapshot.magnitude_changed);
+  const changed = outdated || corrected;
+  const label =
+    mode === "candidate"
+      ? outdated
+        ? "corrected against the published edition"
+        : "same as the published edition"
+      : corrected
+        ? `corrected in Version ${release?.sequence ?? ""}`
+        : outdated
+          ? "out of date against current evidence"
+          : `unchanged in Version ${release?.sequence ?? ""}`;
+  const wasText = corrected ? snapshot?.previous?.text : assessment?.previous?.text;
+  const nowText = corrected ? (snapshot?.current?.text ?? assessment?.current.text) : assessment?.current.text;
 
   return (
     <article className="rr-paper">
@@ -130,7 +170,7 @@ function Sheet({
         <div className="rr-paper__kicker">
           <span>{doc.owner_name ? `Owner ${doc.owner_name}` : doc.document_id}</span>
           <span>
-            {mode === "candidate" ? "Candidate · draft" : `Version ${release?.sequence ?? ""}`}
+            {mode === "candidate" ? "Draft · not published" : `Version ${release?.sequence ?? ""}`}
           </span>
         </div>
         <h2 className="rr-paper__title">{doc.title}</h2>
@@ -144,14 +184,13 @@ function Sheet({
       {assessment && (
         <div className={`rr-paper__diff${changed ? " rr-paper__diff--changed" : ""}`}>
           <div className="rr-paper__diff-label">
-            Registered finding · {changed ? "corrected against the published edition" : "unchanged"}
+            Registered finding · {label}
           </div>
-          {changed && assessment.previous?.text && (
-            <div className="rr-paper__diff-was">{assessment.previous.text}</div>
-          )}
-          <div className="rr-paper__diff-now">{assessment.current.text}</div>
+          {changed && wasText && <div className="rr-paper__diff-was">{wasText}</div>}
+          <div className="rr-paper__diff-now">{nowText}</div>
           <div className="rr-paper__diff-note">
-            Comparison of the registered card, from the workspace assessment. The sheet below is the
+            Comparison of the registered card, from the{" "}
+            {corrected ? "release's own record" : "workspace assessment"}. The sheet below is the
             file itself, exactly as the server serves it.
           </div>
         </div>

@@ -136,10 +136,12 @@ function stubApi({
 /** The investigation panel, opening it the way a user does when it is the next step. */
 async function agentPanel() {
   await screen.findByRole("complementary", { name: /workflow/i });
-  const open = await screen
-    .findByRole("button", { name: /Ask the agent to prepare the review/i })
-    .catch(() => null);
-  if (open) fireEvent.click(open);
+  // A signed-out visitor lands on the desk, so open the step from the stepper.
+  const step = screen.queryByRole("button", { name: "View step 3: Investigation" });
+  if (step && !(step as HTMLButtonElement).disabled && !screen.queryByRole("region", { name: /Ask the agent/i })) {
+    const open = screen.queryByRole("button", { name: /Ask the agent to prepare the review/i });
+    fireEvent.click(open ?? step);
+  }
   return within(await screen.findByRole("region", { name: /Ask the agent/i }));
 }
 
@@ -189,7 +191,7 @@ describe("the agent surface", () => {
     // Both the composer and the recorded run show the instruction verbatim.
     expect(panel.getAllByText(AGENT_JOB_STAGED.request_text).length).toBeGreaterThan(0);
     expect(panel.getByText(/Read current context from FalkorDB/)).toBeDefined();
-    expect(panel.getByText(/asked for inspect_impact/)).toBeDefined();
+    expect(panel.getByText(/asked to investigate registered impact \(inspect_impact\)/)).toBeDefined();
     expect(panel.getByText(/investigated registered impact/)).toBeDefined();
     expect(panel.getByText(/staged the candidate review/)).toBeDefined();
 
@@ -210,7 +212,7 @@ describe("the agent surface", () => {
     expect(await panel.findByText("Requested")).toBeDefined();
     expect(panel.getByText("Evidence")).toBeDefined();
     expect(panel.getByText("Proposed")).toBeDefined();
-    expect(panel.getByText(/keep the cheaper claim/)).toBeDefined();
+    expect(panel.getByText(/read as “keep the cheaper claim”/)).toBeDefined();
     expect(panel.getByText(/South costs \$0\.40 more per parcel than North/)).toBeDefined();
     expect(
       panel.getByText(/Correct 2 registered uses and return the .* for review/),

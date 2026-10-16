@@ -355,7 +355,7 @@ def verify_package(
                 report.record(
                     f"{document_id}:{occurrence['block_id']}:no_{other_relation.lower()}",
                     stale.encode("utf-8") not in body,
-                    "a contradicted assertion is still present",
+                    f"searched the file for the contradicted sentence {stale!r}",
                 )
 
         # 4c. Unregistered narrative is byte-for-byte what the source says.
@@ -378,7 +378,7 @@ def verify_package(
             report.record(
                 f"{document_id}:{block_spec['id']}:scope_label",
                 block.attrs.get("data-assessed") == "false",
-                "narrative must be labelled unassessed",
+                f"narrative labelled unassessed: found data-assessed={block.attrs.get('data-assessed')}",
             )
 
         # 4d. The typed decision block states the committed disposition.

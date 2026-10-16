@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import type { Actor, Workspace } from "../types";
-import { STEP_NAMES, type Step } from "../workflow";
+import { STEP_NAMES, STEP_SHORT_NAMES, type Step } from "../workflow";
 
 /**
  * Wordmark, the story rail and the demo identities.
@@ -92,7 +92,12 @@ export default function Masthead({
                   onClick={() => onView(step)}
                 >
                   <span className="rr-rail__mark">{done ? "✓" : step}</span>
-                  <span className="rr-rail__name">{name}</span>
+                  <span className="rr-rail__name">
+                    <span className="rr-rail__full">{name}</span>
+                    <span className="rr-rail__short" aria-hidden="true">
+                      {STEP_SHORT_NAMES[index]}
+                    </span>
+                  </span>
                 </button>
                 {step < 7 && <span aria-hidden="true" className="rr-rail__sep" />}
               </div>
@@ -106,7 +111,9 @@ export default function Masthead({
               Read-only view ·
             </span>
           )}
-          <span className="rr-personas__label">{actor ? "Acting as" : "sign in as"}</span>
+          <span className="rr-personas__label rr-personas__label--prompt">
+            {actor ? "Acting as" : "sign in as"}
+          </span>
           {workspace.people.map((person) => {
             const active = person.person_id === actor?.person_id;
             return (
