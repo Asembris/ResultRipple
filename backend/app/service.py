@@ -63,6 +63,10 @@ class Actor:
     review_capable: bool
 
 
+# Who may prepare a review plan. Review authority is a separate, graph-held fact.
+STAGING_ROLES = frozenset({"analyst", "agent"})
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -256,7 +260,16 @@ def stage_review(
     the write, and an intent derived from evidence or authority that no longer
     holds would reach a reviewer. The manual path passes nothing and is
     unaffected.
+
+    Only the analyst or the agent principal acting for the analyst prepares a
+    review, so the person who approves and issues never also prepared it.
     """
+    if actor.demo_role not in STAGING_ROLES:
+        raise WorkflowRefused(
+            "NOT_AUTHORIZED",
+            "only the analyst or the agent acting for the analyst prepares a review",
+            http_status=403,
+        )
     with WORKSPACE_LOCK:
         case = graph.case(case_id)
         if case is None:

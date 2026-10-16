@@ -211,7 +211,8 @@ export default function InvestigationStage({ context }: { context: StageContext 
                 No NVIDIA credential is configured, so the deterministic staging below is the honest
                 fallback. It is not an agent demonstration.
               </div>
-              {signedIn && (
+              {/* Staging is the analyst's step; the server refuses everyone else. */}
+              {actor?.demo_role === "analyst" && (
                 <button
                   type="button"
                   className="rr-outline"

@@ -39,6 +39,13 @@ function planFor(workspace: Workspace) {
   };
 }
 
+const ANALYST = {
+  person_id: "person-ari",
+  display_name: "Ari Mensah",
+  demo_role: "analyst",
+  review_capable: false,
+};
+
 interface Call {
   url: string;
   method: string;
@@ -50,11 +57,13 @@ function stubApi({
   job,
   calls = [],
   agentConfigured = true,
+  actor = ANALYST,
 }: {
   workspace: Workspace;
   job?: AgentJob;
   calls?: Call[];
   agentConfigured?: boolean;
+  actor?: typeof ANALYST;
 }) {
   vi.stubGlobal(
     "fetch",
@@ -65,12 +74,6 @@ function stubApi({
         method: init?.method ?? "GET",
         body: init?.body ? JSON.parse(String(init.body)) : undefined,
       });
-      const actor = {
-        person_id: "person-ari",
-        display_name: "Ari Mensah",
-        demo_role: "analyst",
-        review_capable: false,
-      };
       if (url.endsWith("/auth/session")) {
         return new Response(JSON.stringify({ actor }), { status: 200 });
       }
@@ -259,6 +262,24 @@ describe("the agent surface", () => {
     );
     expect(screen.getByText(/honest\s+fallback/)).toBeDefined();
     expect(screen.getByRole("button", { name: /Stage manually instead/ })).toBeDefined();
+  });
+
+  it("offers the manual fallback to the analyst only", async () => {
+    stubApi({
+      workspace: WORKSPACE_CORRECTED,
+      agentConfigured: false,
+      actor: {
+        person_id: "person-noor",
+        display_name: "Noor Haddad",
+        demo_role: "reviewer",
+        review_capable: true,
+      },
+    });
+    render(<App />);
+
+    const panel = await agentPanel();
+    expect(await panel.findByText(/Manual correction workflow — AI unavailable/)).toBeDefined();
+    expect(screen.queryByRole("button", { name: /Stage manually instead/ })).toBeNull();
   });
 
   it("lets only the analyst send a request", async () => {

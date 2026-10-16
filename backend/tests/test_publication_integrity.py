@@ -156,3 +156,36 @@ def test_a_finding_rebound_to_another_comparison_is_held(seeded, ari):
     assert refused.status_code == 409, refused.text
     assert refused.json()["code"] == "MISBOUND_PROVENANCE"
     _nothing_new_is_current(ari, seeded)
+
+
+# -- only the analyst or the agent principal prepares a review ----------------
+
+
+def test_a_reviewer_cannot_stage_their_own_plan(seeded, ari, noor):
+    """Audit B weakness 3a: preparer, approver and issuer must not be one person."""
+    helpers.apply_correction(ari)
+
+    refused = helpers.stage(
+        noor,
+        goal=domain.GOAL_CORRECT_FACTS,
+        disposition=domain.DISPOSITION_NO_CHANGE,
+        alternative_flag=False,
+        key="reviewer-self-stage",
+    )
+
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["code"] == "NOT_AUTHORIZED"
+    case = next(c for c in helpers.workspace(ari)["cases"] if c["case_id"] == domain.CASE_ID)
+    assert case["plans"] == []
+
+
+def test_neither_the_memo_owner_nor_the_operator_can_stage(seeded, ari, sam, operator):
+    helpers.apply_correction(ari)
+
+    for http, key in ((sam, "owner-stage"), (operator, "operator-stage")):
+        refused = helpers.stage(http, key=key)
+        assert refused.status_code == 403, refused.text
+        assert refused.json()["code"] == "NOT_AUTHORIZED"
+
+    case = next(c for c in helpers.workspace(ari)["cases"] if c["case_id"] == domain.CASE_ID)
+    assert case["plans"] == []
