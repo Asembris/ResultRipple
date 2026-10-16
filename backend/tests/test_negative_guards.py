@@ -272,6 +272,50 @@ def test_refresh_routes_the_same_candidates_to_the_new_reviewer(
     assert state["decision"]["status"] == "RETURNED_FOR_REVIEW"
 
 
+def test_a_refused_release_is_recorded_and_survives_the_refresh(
+    seeded, ari, noor, operator
+) -> None:
+    helpers.apply_correction(ari)
+    plan = helpers.staged_plan(ari)
+    helpers.approve(noor, plan)
+    helpers.reassign(operator, helpers.workspace(ari)["context_revision"])
+    assert helpers.release(noor, plan["plan_id"]).json()["code"] == "AUTHORITY_CHANGED"
+
+    refused = ari.get(f"/plans/{plan['plan_id']}").json()
+    assert refused["status"] == "STALE_AUTHORITY"
+    assert refused["refused_action"] == "RELEASE"
+    assert refused["refused_at"]
+
+    refreshed = ari.post(f"/cases/{domain.CASE_ID}/refresh-review")
+    assert refreshed.status_code == 200, refreshed.text
+
+    history = ari.get(f"/plans/{plan['plan_id']}").json()
+    assert history["status"] == "SUPERSEDED"
+    assert history["invalidation_reason"] == "AUTHORITY_CHANGED"
+    assert history["refused_action"] == "RELEASE"
+    assert history["refused_at"] == refused["refused_at"]
+    assert history["approved_by"] == domain.PERSON_NOOR
+
+
+def test_a_refresh_without_a_refused_attempt_records_no_refusal(
+    seeded, ari, noor, operator
+) -> None:
+    helpers.apply_correction(ari)
+    plan = helpers.staged_plan(ari)
+    helpers.approve(noor, plan)
+    helpers.reassign(operator, helpers.workspace(ari)["context_revision"])
+
+    # Nobody tried to approve or release: the refresh alone supersedes the plan.
+    refreshed = ari.post(f"/cases/{domain.CASE_ID}/refresh-review")
+    assert refreshed.status_code == 200, refreshed.text
+
+    history = ari.get(f"/plans/{plan['plan_id']}").json()
+    assert history["status"] == "SUPERSEDED"
+    assert history["invalidation_reason"] == "AUTHORITY_CHANGED"
+    assert history["refused_action"] is None
+    assert history["refused_at"] is None
+
+
 def test_refresh_is_refused_when_a_content_premise_also_changed(
     seeded, ari, noor, operator
 ) -> None:
