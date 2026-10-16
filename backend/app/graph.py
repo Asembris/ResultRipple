@@ -11,13 +11,16 @@ alone would conceal a duplicate edge, so the engine can fail closed.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from dataclasses import dataclass
 from typing import Any
 
 from falkordb import FalkorDB
+from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from .config import Settings
 from .models import GraphStatus
@@ -33,6 +36,14 @@ from .models import GraphStatus
 #     projection. See docs/graph-model.md.
 _PROBE_QUERY = "RETURN $probe AS probe"
 _PROBE_VALUE = "resultripple"
+
+# A dropped socket or a timeout, as raised by redis-py or by the standard library.
+_CONNECTION_ERRORS = (ConnectionError, TimeoutError, RedisConnectionError, RedisTimeoutError)
+
+# Every query here is a fixed string, so whether it writes is decided once, from
+# its text. A write is never re-executed: its reply can be lost after it
+# committed, and running it again could apply it twice or report a false failure.
+_WRITE_CLAUSE = re.compile(r"\b(CREATE|MERGE|SET|DELETE|REMOVE)\b")
 
 # One pooled FalkorDB handle per endpoint, shared by every GraphClient instance.
 _CONNECTIONS: dict[tuple[str, int, float], FalkorDB] = {}
@@ -100,7 +111,8 @@ class GraphClient:
                 _CONNECTIONS[key] = client
             return client
 
-    def _reconnect(self) -> FalkorDB:
+    def _forget(self) -> None:
+        """Drop the pooled handle so the next call opens a fresh connection."""
         key = (
             self.settings.falkordb_host,
             self.settings.falkordb_port,
@@ -108,16 +120,27 @@ class GraphClient:
         )
         with _CONNECTION_LOCK:
             _CONNECTIONS.pop(key, None)
+
+    def _reconnect(self) -> FalkorDB:
+        self._forget()
         return self._connect()
 
     # -- raw access -----------------------------------------------------------
 
     def run(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-        """Execute one fixed query and return rows as dicts keyed by alias."""
+        """Execute one fixed query and return rows as dicts keyed by alias.
+
+        A read is retried once on a dropped pooled socket. A write is not: it
+        fails closed as unreachable, and the caller reconciles by reading.
+        """
         try:
             result = self._connect().select_graph(self.graph_name).query(query, params or {})
-        except (ConnectionError, TimeoutError) as exc:
-            # One retry on a dropped pooled socket, then fail closed.
+        except _CONNECTION_ERRORS as exc:
+            if _WRITE_CLAUSE.search(query):
+                self._forget()
+                raise GraphUnavailable(
+                    "GRAPH_UNREACHABLE", f"{type(exc).__name__}: {exc}; write not retried"
+                ) from exc
             try:
                 result = self._reconnect().select_graph(self.graph_name).query(
                     query, params or {}
