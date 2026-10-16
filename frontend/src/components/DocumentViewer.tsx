@@ -58,7 +58,9 @@ export default function DocumentViewer({
     <div className="rr-viewer" role="dialog" aria-modal="true" aria-label="Report viewer">
       <div className="rr-viewer__bar">
         <div className="rr-viewer__title">Reports</div>
-        {tabs.length > 0 && (
+        {/* One version is a label, not a control: there is nothing to switch to. */}
+        {tabs.length === 1 && <div className="rr-viewer__version">{tabs[0].label}</div>}
+        {tabs.length > 1 && (
           <div className="rr-viewer__tabs" role="tablist">
             {tabs.map((entry) => (
               <button
