@@ -340,6 +340,9 @@ export interface Plan {
   acknowledged_alternative: boolean | null;
   invalidation_reason: string | null;
   superseded_by: string | null;
+  /** The attempt refused for a changed authority, `APPROVAL` or `RELEASE`, when one was made. */
+  refused_action?: string | null;
+  refused_at?: string | null;
   case_id: string;
   approved_by: string | null;
   assigned_reviewer_id: string | null;

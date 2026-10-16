@@ -198,7 +198,7 @@ export function nodeText(n, s) {
       const mine = reviewerIs(s, n.id);
       const role = txtOf(n.id === 'noor' ? L.reviewerARole : L.reviewerBRole);
       if (!s.authorityKnown) return { sub: role + ' · authority unresolved', tag: ['REVIEW AUTHORITY UNKNOWN', 'coral'] };
-      return { sub: mine ? role + ' · current reviewer' : role + ' · not the reviewer', tag: mine ? ['★ REVIEW AUTHORITY', 'amber'] : null };
+      return { sub: mine ? role + ' · current reviewer' : role + ' · no current authority', tag: mine ? ['★ REVIEW AUTHORITY', 'amber'] : null };
     }
     case 'plan': {
       const p = s.plan, v = p.startsWith('v2') ? 'v2' : 'v1';

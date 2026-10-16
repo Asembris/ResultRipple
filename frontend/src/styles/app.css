@@ -863,6 +863,25 @@
 .rr-alert-coral__line { margin-top: 10px; font: 400 24px/1.2 var(--rr-serif); }
 .rr-alert-coral__meta { margin-top: 8px; font: 400 11.5px/1.5 var(--rr-mono); color: var(--rr-ink-2); }
 
+/* ---- recorded history ---------------------------------------------------- */
+
+.rr-history {
+  padding: 18px 22px;
+  border: 1px solid var(--rr-hairline-strong);
+  border-left: 2px solid var(--rr-coral);
+  background: var(--rr-card);
+  border-radius: var(--rr-radius-sm);
+}
+.rr-history__label {
+  font: 600 12px/1 var(--rr-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--rr-coral);
+}
+.rr-history__line { margin-top: 10px; font: 400 14.5px/1.55 var(--rr-sans); color: var(--rr-ink); }
+.rr-history__line + .rr-history__line { margin-top: 6px; }
+.rr-history__meta { margin-top: 10px; font: 400 12px/1.5 var(--rr-mono); color: var(--rr-ink-2); }
+
 /* ---- refusal ------------------------------------------------------------- */
 
 .rr-refusal {

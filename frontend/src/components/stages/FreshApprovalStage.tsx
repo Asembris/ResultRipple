@@ -29,6 +29,44 @@ export default function FreshApprovalStage({ context }: { context: StageContext 
 
   const assignedName = plan.assigned_reviewer_name ?? plan.assigned_reviewer_id ?? "the reviewer";
   const currentName = workspace.decision?.current_reviewer_name ?? "no one";
+  const nameOf = (id: string | null | undefined) =>
+    workspace.people.find((person) => person.person_id === id)?.display_name ?? id ?? null;
+  const first = (name: string | null) => name?.split(" ")[0] ?? "The reviewer";
+
+  // The previous version's own record: who approved it, why it was retired,
+  // and which attempt the server refused, if one was made at all.
+  const history =
+    isFresh && priorPlan?.invalidation_reason === "AUTHORITY_CHANGED" ? priorPlan : null;
+  const priorApprover = nameOf(history?.approved_by);
+  const freshApprover = plan.approved_by ? nameOf(plan.approved_by) : null;
+  const historyLines: string[] = [];
+  if (history) {
+    if (priorApprover) {
+      historyLines.push(
+        identical
+          ? `${first(priorApprover)} approved these same files.`
+          : `${first(priorApprover)} approved plan v${history.version}.`,
+      );
+    }
+    if (history.refused_action === "RELEASE") {
+      historyLines.push(
+        `The release was refused because the reviewer changed (${history.invalidation_reason}).`,
+      );
+    } else if (history.refused_action === "APPROVAL") {
+      historyLines.push(
+        `An approval was refused because the reviewer changed (${history.invalidation_reason}).`,
+      );
+    } else if (priorApprover) {
+      historyLines.push(
+        `That approval no longer counts because the reviewer changed (${history.invalidation_reason}).`,
+      );
+    } else {
+      historyLines.push(
+        `Plan v${history.version} was retired because the reviewer changed (${history.invalidation_reason}).`,
+      );
+    }
+    if (freshApprover) historyLines.push(`${first(freshApprover)} approved again.`);
+  }
 
   return (
     <div className="rr-stage">
@@ -131,6 +169,26 @@ export default function FreshApprovalStage({ context }: { context: StageContext 
                 : "Candidate bytes differ from the previous version."}
             </div>
           </div>
+
+          {history && historyLines.length > 0 && (
+            <div className="rr-history" aria-label="Recorded approval history">
+              <div className="rr-history__label">What happened to plan v{history.version}</div>
+              {historyLines.map((line) => (
+                <div className="rr-history__line" key={line}>
+                  {line}
+                </div>
+              ))}
+              <div className="rr-history__meta">
+                {[
+                  history.approved_at && `v${history.version} approved ${history.approved_at}`,
+                  history.refused_at && `refused ${history.refused_at}`,
+                  plan.approved_at && `v${plan.version} approved ${plan.approved_at}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </div>
+            </div>
+          )}
 
           {plan.status === "AWAITING_REVIEW" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>

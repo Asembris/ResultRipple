@@ -90,3 +90,44 @@ describe("the finished case", () => {
     expect(announced()).toBe("Step 3 of 7: Investigation");
   });
 });
+
+describe("the finished case's authority history", () => {
+  it("says the move in the order it happened and offers no reassignment", async () => {
+    stubApi();
+    render(<App />);
+    await openStep(5, "Authority");
+    const view = await panel();
+    expect(await view.findByText("Review authority moved from Noor to Sam.")).toBeDefined();
+    expect(view.queryByRole("button", { name: /Reassign review authority/ })).toBeNull();
+    expect(view.getByText(/set by the team’s review rota\. Owning a document neither grants nor removes that right/)).toBeDefined();
+    // Ownership from the registered documents: Noor owns none.
+    expect(view.getByText(/Noor Haddad owns no document/)).toBeDefined();
+    expect(view.getByText(/Sam Oyelaran owns the South Expansion Memo/)).toBeDefined();
+    expect(view.queryByText(/may own a document/)).toBeNull();
+  });
+
+  it("names the earlier approval and the refused release from the plan's own record", async () => {
+    stubApi();
+    render(<App />);
+    await openStep(6, "Fresh approval");
+    const view = await panel();
+    expect(await view.findByText("Noor approved these same files.")).toBeDefined();
+    expect(
+      view.getByText("The release was refused because the reviewer changed (AUTHORITY_CHANGED)."),
+    ).toBeDefined();
+    expect(view.getByText("Sam approved again.")).toBeDefined();
+  });
+
+  it("claims no refused release when the server recorded none", async () => {
+    stubApi({ priorPlan: { ...PLAN_V1_FINISHED, refused_action: null, refused_at: null } });
+    render(<App />);
+    await openStep(6, "Fresh approval");
+    const view = await panel();
+    expect(
+      await view.findByText(
+        "That approval no longer counts because the reviewer changed (AUTHORITY_CHANGED).",
+      ),
+    ).toBeDefined();
+    expect(view.queryByText(/release was refused/)).toBeNull();
+  });
+});
