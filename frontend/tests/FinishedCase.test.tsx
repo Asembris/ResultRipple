@@ -131,3 +131,29 @@ describe("the finished case's authority history", () => {
     expect(view.queryByText(/release was refused/)).toBeNull();
   });
 });
+
+describe("the finished case's before and after", () => {
+  it("shows the published figures the correction replaced, from the earlier release's receipt", async () => {
+    stubApi();
+    render(<App />);
+    await openStep(2, "Correction");
+    const view = await panel();
+    expect(
+      await view.findByText(/South \$3\.60 over 7 batches → \$4\.40 over 4 · finding reversed/),
+    ).toBeDefined();
+    expect(view.getByText("$0.40 cheaper")).toBeDefined();
+    expect(view.queryByText(/did not observe the earlier value/)).toBeNull();
+    expect(view.queryByText(/Every registered use still matches/)).toBeNull();
+    expect(view.getByText(/narrative is not assessed/)).toBeDefined();
+  });
+
+  it("shows the proposal status the plan recorded before and after", async () => {
+    stubApi();
+    render(<App />);
+    await openStep(4, "Review");
+    const view = await panel();
+    expect(await view.findByText("Proposed")).toBeDefined();
+    expect(view.getByText("Returned for review")).toBeDefined();
+    expect(view.getByText(/v2 · return the proposal for review/)).toBeDefined();
+  });
+});
