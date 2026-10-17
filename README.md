@@ -421,7 +421,7 @@ All organizational data in this project is fictional demo setup.
 
 ## Demo video
 
-Coming soon.
+[Watch the demo on YouTube](https://youtu.be/rnEBSMolZmA) (107 s)
 
 ## Development assistance
 
