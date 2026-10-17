@@ -239,6 +239,28 @@ h2 em, h3 em { color: var(--amber); }
   .scrolly__stage + .scrolly__steps { padding-top: 58svh; }
   .scrolly__stage + .scrolly__steps .scrolly__step { margin-bottom: 72svh; }
 }
+.hud {
+  position: absolute; right: var(--gutter); bottom: 22px; z-index: 1; width: min(440px, calc(100% - 2 * var(--gutter)));
+  padding: 14px 16px; border: 1px solid var(--hairline-strong); border-radius: 4px; background: #0E0C0AE0;
+  font: 400 11.5px/1.4 var(--mono); color: var(--ink-3); pointer-events: none;
+}
+.hud__k { display: block; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 10px; }
+.hud__row { display: grid; grid-template-columns: 3.6rem 1fr 9.5rem; align-items: center; gap: 10px; margin: 6px 0; }
+.hud__lane { font: 400 17px/1 var(--serif); color: var(--ink); }
+.hud__bar { height: 6px; background: var(--hairline); border-radius: 1px; overflow: hidden; }
+.hud__bar i { display: block; height: 100%; background: #CFC6B6; transition: width .7s var(--ease), background .4s; }
+.hud__v { color: var(--ink-2); text-align: right; }
+.hud__row.is-changed .hud__bar i { background: var(--coral); }
+.hud__row.is-changed .hud__v { color: var(--coral); }
+.hud__finding { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hairline); display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.hud__finding .hud__k { margin: 0; }
+.hud__f { font: 400 20px/1.1 var(--serif); color: var(--amber); text-align: right; }
+.hud__f.is-changed { color: var(--coral); }
+@media (max-width: 700px) {
+  .hud { top: 12px; bottom: auto; right: 12px; width: calc(100% - 24px); padding: 10px 12px; }
+  .hud__row { grid-template-columns: 3rem 1fr 7.6rem; }
+  .hud__f { font-size: 16px; }
+}
 .scene-legend { position: absolute; right: var(--gutter); bottom: 18px; z-index: 1; font: 400 11px/1.5 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); text-align: right; pointer-events: none; }
 .scene-legend i { font-style: normal; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 6px 0 14px; vertical-align: .05em; }
 
@@ -270,6 +292,7 @@ h2 em, h3 em { color: var(--amber); }
   .gl-label--comparison .gl-label__t, .gl-label--finding .gl-label__t, .gl-label--document .gl-label__t, .gl-label--decision .gl-label__t { font-size: 14px; }
   .gl-label__s { font-size: 10px; }
   .gl-label__g { font-size: 9px; padding: 3px 4px 2px; }
+  .gl-edge-tag { display: none; }
 }
 
 /* ---- check ------------------------------------------------------------- */

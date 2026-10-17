@@ -13,12 +13,21 @@ const V = THREE.Vector3;
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 export const ease = (t) => { t = clamp(t); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
 export const span = (s, a, b) => clamp((s - a) / (b - a));
+/** Piecewise interpolation over [[s, value], ...] keyframes, eased between them. */
+export function keyframes(s, frames) {
+  if (s <= frames[0][0]) return frames[0][1];
+  for (let i = 0; i < frames.length - 1; i++) {
+    const [a, va] = frames[i], [b, vb] = frames[i + 1];
+    if (s < b) return va + (vb - va) * ease((s - a) / (b - a));
+  }
+  return frames[frames.length - 1][1];
+}
 
 // ---- layout (presentation only) --------------------------------------------
 const FIXED = {
   comparison: [-2.2, 1.8, 0.5],
   finding: [1.6, 1.8, 0],
-  decision: [8.4, -1.2, 0],
+  decision: [8.6, -2.9, 0],
   team: [10.8, -4.6, 0],
 };
 const DOC_POS = [[5.2, 4.6, -0.3], [5.2, -1.2, 0.3]];
@@ -84,7 +93,7 @@ function haloTexture() {
 
 const SIZE = { batch: 0.12, lane: 0.3, comparison: 0.42, finding: 0.56, document: 0.5, decision: 0.44, team: 0.3, person: 0.34, plan: 0.3 };
 const ANCHOR = { batch: 'left', lane: 'left', comparison: 'below', finding: 'below', document: 'below', decision: 'below', team: 'below', person: 'right', plan: 'right' };
-const GAP = { batch: 12, lane: 18, comparison: 26, finding: 36, document: 34, decision: 26, team: 22, person: 22, plan: 18 };
+const GAP = { batch: 12, lane: 0, comparison: 26, finding: 36, document: 34, decision: 26, team: 22, person: 22, plan: 18 };
 
 export function webglAvailable() {
   try {
@@ -210,7 +219,7 @@ export function createGraph(opts) {
   }
 
   // ---- camera framing ----
-  const view = { x: 2, y: 0, w: 30, h: 16, shift: 0, yaw: 0, pitch: 0.04 };
+  const view = { x: 2, y: 0, w: 30, h: 16, shift: 0, lift: 0, yaw: 0, pitch: 0.04 };
   const cam = { x: 2, y: 0, dist: 60, init: false };
   const tanH = () => Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
   function fitDist() {
@@ -246,7 +255,7 @@ export function createGraph(opts) {
     if (!cam.init || reduced || snap) { cam.x = view.x; cam.y = view.y; cam.dist = gd; cam.init = true; }
     cam.x += (view.x - cam.x) * k; cam.y += (view.y - cam.y) * k; cam.dist += (gd - cam.dist) * k;
     const shiftWorld = view.shift * cam.dist * tanH() * camera.aspect;
-    const cx = cam.x - shiftWorld, cy = cam.y;
+    const cx = cam.x - shiftWorld, cy = cam.y - view.lift * cam.dist * tanH();
     camera.position.set(cx + Math.sin(view.yaw) * cam.dist, cy + Math.sin(view.pitch) * cam.dist, Math.cos(view.yaw) * Math.cos(view.pitch) * cam.dist);
     camera.lookAt(cx, cy, 0);
 
@@ -282,9 +291,13 @@ export function createGraph(opts) {
       if (!L.on) return;
       const a = n.vis * n.dim * L.alpha;
       if (a < 0.02) { if (L.shown) { L.el.style.opacity = '0'; L.shown = false; } return; }
-      tmp.copy(n.group.position).project(camera);
+      tmp.copy(n.group.position);
+      if (n.def.type === 'lane') tmp.x -= 4.3; // left of the batch column, as in the app
+      tmp.project(camera);
       if (tmp.z > 1) return;
       const x = (tmp.x * 0.5 + 0.5) * W, y = (-tmp.y * 0.5 + 0.5) * H;
+      // A node outside the view keeps its label hidden instead of pinned to an edge.
+      if (x < -8 || x > W + 8 || y < -8 || y > H + 8) { if (L.shown) { L.el.style.opacity = '0'; L.shown = false; } return; }
       if (!L.w) { L.w = L.el.offsetWidth; L.h = L.el.offsetHeight; }
       const g = GAP[n.def.type], anchor = L.anchor;
       let left = anchor === 'left' ? x - g - L.w : anchor === 'below' ? x - L.w / 2 : x + g;
@@ -364,6 +377,8 @@ function makeLabel(def, layer, on) {
   const g = document.createElement('div'); g.className = 'gl-label__g';
   el.append(t, s, g);
   t.textContent = def.label;
+  s.style.display = 'none';
+  g.style.display = 'none';
   layer.appendChild(el);
   const anchor = ANCHOR[def.type];
   el.dataset.anchor = anchor;

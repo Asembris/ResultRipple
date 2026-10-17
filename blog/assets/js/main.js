@@ -10,6 +10,7 @@ if (reduced) root.classList.add('reduced-motion');
 
 const LOADERS = {
   hero: () => import('./scenes/hero.js'),
+  ripple: () => import('./scenes/ripple.js'),
 };
 
 function webglAvailable() {
@@ -34,7 +35,8 @@ function story() {
 function stepValue(steps) {
   const cards = steps.querySelectorAll('.scrolly__step');
   if (cards.length < 2) return 0;
-  const mid = innerHeight * 0.55;
+  // On a phone the active card sits low, below the part of the stage the scene uses.
+  const mid = innerHeight * (innerWidth < 700 ? 0.78 : 0.55);
   const c = Array.from(cards, (el) => { const r = el.getBoundingClientRect(); return r.top + r.height / 2; });
   if (mid <= c[0]) return Math.max(-0.6, (mid - c[0]) / (c[1] - c[0]));
   for (let k = 0; k < c.length - 1; k++) if (mid < c[k + 1]) return k + (mid - c[k]) / (c[k + 1] - c[k]);
