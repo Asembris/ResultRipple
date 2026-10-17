@@ -13,8 +13,10 @@ registered use, returns the decision that relied on it, and lets only the curren
 reviewer issue the new editions.**
 
 [![Live demo](https://img.shields.io/badge/Live_demo-open_the_workspace-E8B064?style=for-the-badge)](https://52-58-115-104.sslip.io)
-[![Watch demo](https://img.shields.io/badge/Watch_demo-video_coming_soon-6B6459?style=for-the-badge)](#demo-video)
+[![Watch demo](https://img.shields.io/badge/Watch_demo-YouTube-6B6459?style=for-the-badge)](https://youtu.be/rnEBSMolZmA)
 [![Graph Hacks 2026](https://img.shields.io/badge/Graph_Hacks_2026-Track_3_%C2%B7_Company_Brain-9CCBAE?style=for-the-badge)](https://www.wemakedevs.org/hackathons/falkordb)
+
+Recorded on a local run of the deployed build, with real FalkorDB and NVIDIA inference; edition hashes match production.
 
 [![FalkorDB 6.0.2](https://img.shields.io/badge/FalkorDB-6.0.2-E3876A?style=flat)](docs/graph-model.md)
 [![NVIDIA Nemotron](https://img.shields.io/badge/NVIDIA-Nemotron_3_Super_120B-76B900?style=flat&logo=nvidia&logoColor=white)](docs/agent.md)
@@ -423,7 +425,7 @@ Coming soon.
 
 ## Development assistance
 
-Development assistance: ChatGPT was used for product design discussion, planning and code review; Claude Code was used for implementation, testing and deployment operations; independent audits were run in separate Claude sessions. Architecture, verification and submission decisions were reviewed and made by the project author.
+Development assistance: ChatGPT was used for product design discussion, planning and code review; Claude Code was used for implementation, testing and deployment operations; independent audits were run in separate Claude sessions. Architecture, verification and submission decisions were reviewed and made by the project author. The demo voiceover was generated with ElevenLabs.
 
 ## License
 
