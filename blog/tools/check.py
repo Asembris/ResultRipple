@@ -12,6 +12,7 @@
 8. Links into this repository point at files that exist; commit links at real commits.
 9. The relationship names the scenes draw exist in docs/graph-model.md.
 10. The vendored Three.js is the pinned r160 build.
+11. The static fallback figures are exactly what story.json produces, and load nothing.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ BLOG = TOOLS.parent
 ROOT = BLOG.parent
 sys.path.insert(0, str(TOOLS))
 
+import build_figures  # noqa: E402
 import extract_story  # noqa: E402
 
 REPO_URL = "https://github.com/Asembris/ResultRipple"
@@ -380,6 +382,17 @@ def main() -> int:
         if b'const t="160"' not in data[:400]:
             vendor_problems.append("three.module.min.js does not declare REVISION 160")
         r.check("vendored Three.js is the pinned r160 build", vendor_problems, f"{len(data):,} bytes, sha256 {THREE_R160_SHA256[:12]}…")
+
+    # 11 · fallback figures
+    fig_problems = []
+    figures = build_figures.render_all()
+    for name, text in figures.items():
+        path = build_figures.OUT / name
+        if not path.exists() or path.read_text(encoding="utf-8") != text:
+            fig_problems.append(f"assets/figures/{name} differs from what story.json produces (run blog/tools/build_figures.py)")
+        if re.search(r"(?:href|src)\s*=|url\(|@import", text):
+            fig_problems.append(f"assets/figures/{name} references another resource")
+    r.check("fallback figures match story.json", fig_problems, f"{len(figures)} SVGs, self-contained")
 
     print()
     print(f"{len(r.passes)} passed, {len(r.failures)} failed")

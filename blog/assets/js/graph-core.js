@@ -119,9 +119,11 @@ export function createGraph(opts) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap));
   renderer.setClearColor(0x000000, 0);
   renderer.domElement.className = 'gl-canvas';
+  renderer.domElement.setAttribute('aria-hidden', 'true');
   container.appendChild(renderer.domElement);
   const labelLayer = document.createElement('div');
   labelLayer.className = 'gl-labels';
+  labelLayer.setAttribute('aria-hidden', 'true');
   container.appendChild(labelLayer);
 
   const scene = new THREE.Scene();

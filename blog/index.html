@@ -37,7 +37,7 @@
 
 <!-- 1 · Hero ------------------------------------------------------------ -->
 <section class="hero" id="hero" data-live aria-labelledby="hero-title">
-  <div class="hero__scene" id="hero-scene" data-scene="hero" aria-hidden="true"></div>
+  <div class="hero__scene" id="hero-scene" data-scene="hero" aria-hidden="true"><img class="hero__fallback" src="assets/figures/hero.svg" width="1400" height="584" alt=""></div>
   <div class="hero__inner">
     <div class="hero__copy">
       <p class="refusal-line">
@@ -259,7 +259,9 @@
     </div>
   </div>
   <div class="scrolly__body">
-  <div class="scrolly__stage" data-scene="ripple" data-live aria-hidden="true"></div>
+  <div class="scrolly__stage" data-scene="ripple" data-live>
+    <div class="scrolly__fallback"><img src="assets/figures/ripple.svg" width="1200" height="586" loading="lazy" decoding="async" alt="Still frame of the ripple: B09, B10 and B11 move from South to Pilot; South goes from $3.60 over 7 batches to $4.40 over 4; the comparison reverses; the shared finding goes from 40 cents cheaper to 40 cents more expensive; both reports and the South lane expansion proposal are out of date."></div>
+  </div>
   <div class="scrolly__steps" data-steps="ripple">
     <article class="scrolly__step" data-step="0">
       <span class="kicker">Before</span>
@@ -301,7 +303,9 @@
     </div>
   </div>
   <div class="scrolly__body">
-  <div class="scrolly__stage" data-scene="authority" data-live aria-hidden="true"></div>
+  <div class="scrolly__stage" data-scene="authority" data-live>
+    <div class="scrolly__fallback"><img src="assets/figures/authority.svg" width="1000" height="952" loading="lazy" decoding="async" alt="Still frame of the authority change: the Operations Review REVIEWED_BY edge moves from Noor Haddad to Sam Oyelaran; plan v1, approved by Noor, is refused with AUTHORITY_CHANGED; plan v2 has the same content hash and a new fingerprint and is approved by Sam."></div>
+  </div>
   <div class="scrolly__steps" data-steps="authority">
     <article class="scrolly__step" data-step="0">
       <span class="kicker">Approved</span>

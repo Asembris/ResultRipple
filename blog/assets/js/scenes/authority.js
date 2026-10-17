@@ -39,6 +39,7 @@ export function mount(container, story, { reduced }) {
       <div class="hud__plan" data-plan="2"><span class="hud__pv">v2</span><span class="hud__ph"></span><span class="hud__ps"></span></div>
     </div>
     <div class="hud__same"></div>`;
+  hud.setAttribute('aria-hidden', 'true');
   container.appendChild(hud);
   hud.querySelector('.hud__k').textContent = A.team + ' · review authority';
   const edgeRow = { before: hud.querySelector('[data-who=before]'), after: hud.querySelector('[data-who=after]') };

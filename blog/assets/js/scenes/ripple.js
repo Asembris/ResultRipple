@@ -27,6 +27,7 @@ export function mount(container, story, { reduced }) {
     <div class="hud__row"><span class="hud__lane"></span><span class="hud__bar"><i></i></span><span class="hud__v"></span></div>
     <div class="hud__row"><span class="hud__lane"></span><span class="hud__bar"><i></i></span><span class="hud__v"></span></div>
     <div class="hud__finding"><span class="hud__k">Shared finding</span><span class="hud__f"></span></div>`;
+  hud.setAttribute('aria-hidden', 'true');
   container.appendChild(hud);
   const rows = hud.querySelectorAll('.hud__row');
   rows[0].querySelector('.hud__lane').textContent = laneName(I.left);
