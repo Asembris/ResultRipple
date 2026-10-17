@@ -11,6 +11,7 @@ if (reduced) root.classList.add('reduced-motion');
 const LOADERS = {
   hero: () => import('./scenes/hero.js'),
   ripple: () => import('./scenes/ripple.js'),
+  authority: () => import('./scenes/authority.js'),
 };
 
 function webglAvailable() {
