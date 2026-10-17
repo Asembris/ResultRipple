@@ -242,6 +242,36 @@ h2 em, h3 em { color: var(--amber); }
 .scene-legend { position: absolute; right: var(--gutter); bottom: 18px; z-index: 1; font: 400 11px/1.5 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); text-align: right; pointer-events: none; }
 .scene-legend i { font-style: normal; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 6px 0 14px; vertical-align: .05em; }
 
+/* ---- WebGL scenes (labels are DOM, positioned by the scene) -------------- */
+.gl-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.gl-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.gl-label { position: absolute; left: 0; top: 0; opacity: 0; white-space: nowrap; will-change: transform, opacity; text-shadow: 0 1px 14px rgba(8, 7, 6, .95), 0 0 3px rgba(8, 7, 6, .9); }
+.gl-label[data-anchor=left] { text-align: right; }
+.gl-label[data-anchor=below] { text-align: center; }
+.gl-label__t { font: 500 13px/1.15 var(--sans); color: var(--ink); letter-spacing: .01em; }
+.gl-label--lane .gl-label__t { font: 400 24px/1 var(--serif); letter-spacing: 0; }
+.gl-label--comparison .gl-label__t, .gl-label--finding .gl-label__t, .gl-label--document .gl-label__t, .gl-label--decision .gl-label__t { font: 400 19px/1.05 var(--serif); letter-spacing: 0; }
+.gl-label--batch .gl-label__t { font: 500 11px/1 var(--mono); color: #A39A8C; letter-spacing: .02em; }
+.gl-label__s { font: 400 11.5px/1.3 var(--mono); color: #A39A8C; margin-top: 4px; }
+.gl-label__g { font: 600 10.5px/1 var(--mono); letter-spacing: .08em; padding: 4px 6px 3px; border-radius: 2px; margin-top: 6px; width: max-content; border: 1px solid; }
+.gl-label[data-anchor=below] .gl-label__g { margin-left: auto; margin-right: auto; }
+.gl-label[data-anchor=left] .gl-label__g { margin-left: auto; }
+.gl-label__g[data-tone=coral] { color: var(--coral); border-color: #E3876A66; background: #E3876A14; }
+.gl-label__g[data-tone=sage] { color: var(--sage); border-color: #9CCBAE66; background: #9CCBAE14; }
+.gl-label__g[data-tone=amber] { color: var(--amber); border-color: #E8B06466; background: #E8B06414; }
+@media (max-width: 899px) {
+  .hero .gl-labels { display: none; }
+  .hero .gl-canvas { opacity: .5; }
+}
+.gl-edge-tag { position: absolute; left: 0; top: 0; opacity: 0; white-space: nowrap; font: 500 10.5px/1 var(--mono); letter-spacing: .06em; color: #8C8476; text-shadow: 0 0 8px var(--bg), 0 0 3px var(--bg); }
+@media (max-width: 700px) {
+  .gl-label__t { font-size: 11px; }
+  .gl-label--lane .gl-label__t { font-size: 18px; }
+  .gl-label--comparison .gl-label__t, .gl-label--finding .gl-label__t, .gl-label--document .gl-label__t, .gl-label--decision .gl-label__t { font-size: 14px; }
+  .gl-label__s { font-size: 10px; }
+  .gl-label__g { font-size: 9px; padding: 3px 4px 2px; }
+}
+
 /* ---- check ------------------------------------------------------------- */
 .hashes { width: 100%; border-collapse: collapse; font: 400 12.5px/1.5 var(--mono); margin: 0 0 32px; }
 .hashes th { text-align: left; font-weight: 500; color: var(--ink-3); letter-spacing: .1em; text-transform: uppercase; font-size: 11px; padding: 0 12px 10px 0; border-bottom: 1px solid var(--hairline-strong); }

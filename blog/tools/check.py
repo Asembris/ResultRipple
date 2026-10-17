@@ -11,6 +11,7 @@
 7. The screenshots are byte-identical to docs/evidence/screens.
 8. Links into this repository point at files that exist; commit links at real commits.
 9. The relationship names the scenes draw exist in docs/graph-model.md.
+10. The vendored Three.js is the pinned r160 build.
 """
 
 from __future__ import annotations
@@ -32,6 +33,8 @@ sys.path.insert(0, str(TOOLS))
 import extract_story  # noqa: E402
 
 REPO_URL = "https://github.com/Asembris/ResultRipple"
+# sha256 of frontend/node_modules/three/build/three.module.min.js at three@0.160.0
+THREE_R160_SHA256 = "3e690ac7d180b0aadf0891bea39eec643e29e2d3e75c99b18689518665f69ba6"
 ALLOWED_LINKS = (
     re.compile(r"^https://52-58-115-104\.sslip\.io(/[A-Za-z0-9/_.-]*)?$"),
     re.compile(r"^https://github\.com/Asembris/ResultRipple(/[A-Za-z0-9/_.-]*)?(#[a-z0-9-]+)?$"),
@@ -366,6 +369,17 @@ def main() -> int:
                 rel_problems.append(f"{name} is not a relationship in docs/graph-model.md")
     r.check("scene relationship names exist in docs/graph-model.md", sorted(set(rel_problems)),
             f"{len(story['graph']['nodes'])} nodes, {len(story['graph']['edges'])} edges")
+
+    # 10 · vendored Three.js
+    vendor = BLOG / "assets" / "js" / "vendor" / "three.module.min.js"
+    vendor_problems = []
+    if vendor.exists():
+        data = vendor.read_bytes()
+        if hashlib.sha256(data).hexdigest() != THREE_R160_SHA256:
+            vendor_problems.append("three.module.min.js is not the pinned r160 build from frontend/node_modules/three")
+        if b'const t="160"' not in data[:400]:
+            vendor_problems.append("three.module.min.js does not declare REVISION 160")
+        r.check("vendored Three.js is the pinned r160 build", vendor_problems, f"{len(data):,} bytes, sha256 {THREE_R160_SHA256[:12]}…")
 
     print()
     print(f"{len(r.passes)} passed, {len(r.failures)} failed")
