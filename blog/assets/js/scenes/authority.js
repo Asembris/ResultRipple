@@ -3,7 +3,7 @@
 // plan v1's approval stops counting (AUTHORITY_CHANGED). Step 3: plan v2, with
 // identical content and a new fingerprint, is approved by Sam. Every name, hash
 // and code is read from the story.
-import { createGraph, ease, span, keyframes } from '../graph-core.js';
+import { createGraph, ease, span, keyframes, besideCards } from '../graph-core.js';
 import { ids, short, upper } from '../story-view.js';
 
 export function mount(container, story, { reduced }) {
@@ -108,10 +108,11 @@ export function mount(container, story, { reduced }) {
       g.frame({ x: 13.2, y: -1.9, w: 14, h: 9, shift: 0, lift: 0.1, yaw: 0, pitch: 0.05 });
     } else {
       // below the panel (top right) and clear of the step cards (left)
-      g.frame({ x: W >= 960 ? 6.8 : 9.4, y: 0.3, w: W >= 960 ? 25 : 17, h: 16.6, shift: 0, lift: 0, yaw: -0.06 + 0.06 * ease(span(s, 0, 3)), pitch: 0.04 });
+      const fit = W >= 960 ? besideCards(container, 25, 0) : { w: 17, shift: 0 };
+      g.frame({ x: W >= 960 ? 6.8 : 9.4, y: 0.3, w: fit.w, h: 16.6, shift: fit.shift, lift: 0, yaw: -0.06 + 0.06 * ease(span(s, 0, 3)), pitch: 0.04 });
     }
     lastS = s;
-    if (reduced) g.still();
+    if (reduced || g.slow) g.still();
   }
 
   function wave(s, a, b, reverse) {

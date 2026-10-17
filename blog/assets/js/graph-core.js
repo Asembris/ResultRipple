@@ -23,6 +23,17 @@ export function keyframes(s, frames) {
   return frames[frames.length - 1][1];
 }
 
+/**
+ * Desktop framing for the scroll scenes, tuned at 1440 px: keep that scale on
+ * wider screens and move the graph into the space right of the step cards.
+ */
+export function besideCards(container, w, shift) {
+  const W = container.clientWidth;
+  const card = container.parentElement && container.parentElement.querySelector('.scrolly__step');
+  const right = card ? card.getBoundingClientRect().right : 544;
+  return { w: w * Math.max(1, W / 1440), shift: ((shift * 1440) / 2 + (right - 544)) * 2 / W };
+}
+
 // ---- layout (presentation only) --------------------------------------------
 const FIXED = {
   comparison: [-2.2, 1.8, 0.5],
@@ -322,13 +333,25 @@ export function createGraph(opts) {
   }
 
   // ---- loop control ----
-  let running = false, raf = 0;
+  // On a machine that cannot hold the frame rate (software WebGL, for one), the
+  // scene drops its continuous motion after the first second and renders only
+  // when the story moves, so it never competes with scrolling.
+  let running = false, raf = 0, slow = false, lastNow = 0;
+  const samples = [];
   const t0 = performance.now();
   const frameHooks = [];
   function loop(now) {
     if (!running) return;
     raf = requestAnimationFrame(loop);
     const t = (now - t0) / 1000;
+    if (lastNow && samples.length < 45 && document.visibilityState === 'visible') {
+      samples.push(now - lastNow);
+      if (samples.length === 45) {
+        const sorted = samples.slice().sort((x, y) => x - y);
+        if (sorted[22] > 28) { slow = true; running = false; cancelAnimationFrame(raf); draw(t, true); return; }
+      }
+    }
+    lastNow = now;
     frameHooks.forEach((fn) => fn(t));
     draw(t);
   }
@@ -357,9 +380,10 @@ export function createGraph(opts) {
     onFrame(fn) { frameHooks.push(fn); },
     render() { draw(lastT + 1 / 60, false); },
     still() { draw(lastT, true); },
-    start() { if (running || reduced) { if (reduced) draw(lastT, true); return; } running = true; raf = requestAnimationFrame(loop); },
+    start() { if (running || reduced || slow) { if (!running) draw(lastT, true); return; } running = true; lastNow = 0; raf = requestAnimationFrame(loop); },
     stop() { running = false; cancelAnimationFrame(raf); },
     get running() { return running; },
+    get slow() { return slow; },
     dispose() {
       api.stop(); ro.disconnect();
       scene.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });

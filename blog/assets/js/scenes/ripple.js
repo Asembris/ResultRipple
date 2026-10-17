@@ -3,7 +3,7 @@
 // with the scroll; every figure and sentence switches from its recorded "before"
 // value to its recorded "after" value at the step where the change reaches it,
 // never through invented intermediate numbers.
-import { createGraph, ease, span, keyframes } from '../graph-core.js';
+import { createGraph, ease, span, keyframes, besideCards } from '../graph-core.js';
 import { ids, laneSub, comparisonSub, findingSub, statusWord } from '../story-view.js';
 
 export function mount(container, story, { reduced }) {
@@ -127,19 +127,20 @@ export function mount(container, story, { reduced }) {
       ][Math.min(4, step)];
       include.forEach((id) => g.labelAlpha(id, focus.includes(id) ? 1 : 0));
       lastS = s;
-      if (reduced) g.still();
+      if (reduced || g.slow) g.still();
       return;
     }
     include.forEach((id) => g.labelAlpha(id, 1));
     const c = ease(span(s, 0.9, 3.3));
+    const fit = wide ? besideCards(container, 13.5 + (24.5 - 13.5) * c, 0.2) : { w: 13.5 + (24.5 - 13.5) * c, shift: 0 };
     g.frame({
       x: -5.6 + (2.0 - -5.6) * c, y: -0.9 - 0.8 * c,
-      w: 13.5 + (24.5 - 13.5) * c, h: 14.5 + 2.2 * c,
-      shift: wide ? 0.2 : 0,
+      w: fit.w, h: 14.5 + 2.2 * c,
+      shift: fit.shift,
       yaw: -0.1 + 0.16 * c, pitch: 0.05,
     });
     lastS = s;
-    if (reduced) g.still();
+    if (reduced || g.slow) g.still();
   }
 
   function wave(s, a, b, reverse) {
