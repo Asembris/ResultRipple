@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ResultRipple: when the reviewer changes, the approval does not carry over</title>
+<meta name="description" content="A write-up of ResultRipple, built for FalkorDB Graph Hacks 2026: when the evidence behind a published finding changes, find every report and decision that used it, and let only the current reviewer issue the corrected editions.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0E0C0A">
+<meta property="og:title" content="ResultRipple: the approval was recorded under a reviewer who no longer holds this case">
+<meta property="og:description" content="Evidence-connected publishing on FalkorDB. What it does, how one correction ripples through a graph, and what I learned building it.">
+<meta property="og:type" content="article">
+<meta property="og:image" content="assets/video-poster.jpg">
+<link rel="preload" href="assets/fonts/instrument-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/hanken-grotesk-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/css/blog.css">
+</head>
+<body>
+<a class="skip" href="#problem">Skip to the write-up</a>
+
+<header class="masthead">
+  <a class="wordmark" href="#top" aria-label="ResultRipple, back to top">Result<em>Ripple</em></a>
+  <nav aria-label="Sections">
+    <a href="#problem">Problem</a>
+    <a href="#story">Story</a>
+    <a href="#ripple">Ripple</a>
+    <a href="#authority">Authority</a>
+    <a href="#check">Check it</a>
+    <a href="#learned">Lessons</a>
+    <a href="#video">Video</a>
+  </nav>
+</header>
+
+<main id="top">
+
+<!-- 1 · Hero ------------------------------------------------------------ -->
+<section class="hero" id="hero" aria-labelledby="hero-title">
+  <div class="hero__scene" id="hero-scene" data-scene="hero" aria-hidden="true"></div>
+  <div class="hero__inner">
+    <div class="hero__copy">
+      <p class="refusal-line">
+        <span class="status">HTTP <span data-fact="refusal.http">409</span></span>
+        <span>POST /plans/<span data-fact="plan.v1.id">plan-case-dispatch-b09-b11-v1</span>/release</span>
+      </p>
+      <h1 id="hero-title"><span class="q">“</span><span data-fact="refusal.detail_sentence">The approval was recorded under a reviewer who no longer holds this case.</span><span class="q">”</span></h1>
+      <p class="code-line"><span data-fact="refusal.code">AUTHORITY_CHANGED</span> <span class="muted">· nothing written</span></p>
+      <p class="lede">ResultRipple is evidence-connected publishing for a small analytics team: when the evidence behind a published finding changes, it finds every report and pending decision that used it, prepares the correction for whoever the graph says may review it, and issues new editions only after that person approves.</p>
+      <p class="byline">A Graph Hacks 2026 write-up · Track 3, Company Brain · by Asembris</p>
+      <div class="actions">
+        <a class="btn btn--primary" href="https://52-58-115-104.sslip.io">Open the live workspace <span class="arrow">→</span></a>
+        <a class="btn" href="https://github.com/Asembris/ResultRipple">Read the code</a>
+        <a class="btn" href="#video">Watch the demo</a>
+      </div>
+    </div>
+  </div>
+  <div class="hero__foot" aria-hidden="true">
+    <span>FalkorDB 6.0.2 · NVIDIA Nemotron · fictional demo data</span>
+    <span>The graph behind this text is drawn from the recorded run</span>
+  </div>
+</section>
+
+<!-- 2 · Problem --------------------------------------------------------- -->
+<section class="section" id="problem" aria-labelledby="problem-title">
+  <div class="inner split">
+    <div>
+      <span class="kicker"><span class="n">01</span>The problem</span>
+      <h2 id="problem-title">A finding outlives the evidence it was built on.</h2>
+      <div class="prose">
+        <p>A small operations-analytics team compares handling cost per parcel across delivery lanes. One result gets published twice: once in the recurring cost review, once, shorter, in the memo that argues for expanding the South lane. A pending proposal records that finding as its reason.</p>
+        <p>Then a dispatch note arrives. Three batches logged against South during a depot handover were really Pilot-lane runs. No cost was wrong and the CSV does not change. Three memberships move, and the comparison reverses.</p>
+        <p>The fix is a single sentence. Finding out what it touches is not. Three questions come up, and in most teams none of them has an answer anyone can check:</p>
+      </div>
+    </div>
+    <div>
+      <ol class="questions">
+        <li>
+          <span class="n">Q1</span>
+          <div>
+            <h3>Which published sentences state this finding?</h3>
+            <p>Not “which reports mention South”. Which documents state <em>this</em> finding, in which block, in which approved wording.</p>
+          </div>
+          <span class="edge">(Occurrence)-[:OF_CLAIM]-&gt;(Claim) · (Occurrence)-[:IN_DOCUMENT]-&gt;(Document)</span>
+        </li>
+        <li>
+          <span class="n">Q2</span>
+          <div>
+            <h3>Which pending decision rests on it?</h3>
+            <p>A proposal that cites a number is a use of that number, and it has to go back for review when the number turns.</p>
+          </div>
+          <span class="edge">(Decision)-[:BASED_ON]-&gt;(Claim)</span>
+        </li>
+        <li>
+          <span class="n">Q3</span>
+          <div>
+            <h3>Who may approve the correction today?</h3>
+            <p>Not whoever owns the document, and not whoever approved last time. Whoever the team’s review rota names now.</p>
+          </div>
+          <span class="edge">(Decision)-[:OWNED_BY]-&gt;(Team)-[:REVIEWED_BY]-&gt;(Person)</span>
+        </li>
+      </ol>
+      <div class="prose" style="margin-top:28px">
+        <p>ResultRipple keeps all three answers as edges in FalkorDB and asks the graph again every time. No list of affected files or reviewer name lives in application code. If FalkorDB is down, new corrections, reviews and releases stop instead of guessing.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 · Story ----------------------------------------------------------- -->
+<section class="section" id="story" aria-labelledby="story-title">
+  <div class="inner">
+    <span class="kicker"><span class="n">02</span>The story, step by step</span>
+    <h2 id="story-title">One correction, from dispatch note to Release 2.</h2>
+    <div class="prose">
+      <p>This is the run recorded in <a href="https://github.com/Asembris/ResultRipple/tree/main/docs/evidence">docs/evidence</a> on 16 October 2026: a byte copy of what the deployed API served. The screenshots are the signed-out live site showing that finished case. Ari Mensah is the analyst, Noor Haddad and Sam Oyelaran are reviewers, and the organization is fictional.</p>
+    </div>
+
+    <ol class="steps">
+      <li class="step">
+        <div class="step__text">
+          <span class="kicker"><span class="n">1</span>Correction</span>
+          <h3>Ari confirms the dispatch note.</h3>
+          <p>Dispatch note <span data-fact="correction.source_ref">DX-2026-0914</span> says <span data-fact="correction.moved_list">B09, B10 and B11</span> were Pilot runs. One guarded write moves those <span data-fact="correction.moved_count">3</span> memberships from South to Pilot. Every cost stays where it was.</p>
+          <p class="facts"><b>South</b> <span data-fact="south.before.total">2520</span>/<span data-fact="south.before.n">7</span> = <span data-fact="south.before.mean_cents">360</span>¢ → <span data-fact="south.after.total">1760</span>/<span data-fact="south.after.n">4</span> = <span data-fact="south.after.mean_cents">440</span>¢<br><b>North</b> <span data-fact="north.total">1600</span>/<span data-fact="north.n">4</span> = <span data-fact="north.mean_cents">400</span>¢, unchanged<br><b>Context revision</b> <span data-fact="rev.correction">2 → 3</span></p>
+        </div>
+        <figure class="shot">
+          <a href="assets/screens/02-correction.jpg"><img src="assets/screens/02-correction.jpg" width="1920" height="1080" loading="lazy" decoding="async" alt="The Correction step of the live workspace: South mean cost per parcel goes from $3.60 to $4.40, and the finding from $0.40 cheaper to $0.40 more expensive."></a>
+          <figcaption>Correction · <code>02-correction.jpg</code> · the live site, signed out, after the run</figcaption>
+        </figure>
+      </li>
+
+      <li class="step">
+        <div class="step__text">
+          <span class="kicker"><span class="n">2</span>Ripple</span>
+          <h3>The graph says what that changes.</h3>
+          <p>From the corrected lane, the traversal runs through the comparison to the one registered finding, then to its two occurrences and the proposal that records it as its basis. North minus South goes from <span data-fact="diff.before">+40</span>¢ to <span data-fact="diff.after">−40</span>¢: the same 40 cents, the other way round.</p>
+          <p>The traversal is a cross-check. The publication scope itself comes from the documents’ registered occurrences, and staging holds with <code>IMPACT_SCOPE_MISMATCH</code> unless the two agree exactly.</p>
+        </div>
+        <figure class="shot">
+          <a href="assets/screens/01-desk.jpg"><img src="assets/screens/01-desk.jpg" width="1920" height="1080" loading="lazy" decoding="async" alt="The Desk step: the evidence graph from batches and lanes through the cost comparison and the shared finding to both reports, the South lane expansion proposal and the reviewers."></a>
+          <figcaption>Desk · <code>01-desk.jpg</code> · one finding, two reports, one pending decision</figcaption>
+        </figure>
+      </li>
+
+      <li class="step">
+        <div class="step__text">
+          <span class="kicker"><span class="n">3</span>Agent</span>
+          <h3>Ari asks for something the evidence no longer supports.</h3>
+          <p>The request: <em>“<span data-fact="agent.request">Update the reports, but keep South as the cheaper option in the rollout memo.</span>”</em> The model called <code>inspect_impact</code>, then <code>stage_review</code>. It read the request as asking to keep the cost claim, which is now contradicted, so it staged the explicit alternative: correct both registered uses and return the proposal for review.</p>
+          <p class="facts"><b>Model</b> <span data-fact="agent.model">nvidia/nemotron-3-super-120b-a12b</span><br><b>Run</b> <span data-fact="agent.turns">2</span> turns · <span data-fact="agent.tool_calls">2</span> tool calls · <span data-fact="agent.elapsed">6.4 s</span> · <span data-fact="agent.tokens">6,017</span> tokens<br><b>Typed intent</b> <span data-fact="agent.goal">RETAIN_CHEAPER_CLAIM</span> · <span data-fact="agent.disposition">RETURN_FOR_REVIEW</span></p>
+        </div>
+        <figure class="shot">
+          <a href="assets/screens/03-investigation.jpg"><img src="assets/screens/03-investigation.jpg" width="1920" height="1080" loading="lazy" decoding="async" alt="The Investigation step: the recorded agent run with its graph read, two model turns, two tool calls and timings, and the request marked as contradicted."></a>
+          <figcaption>Investigation · <code>03-investigation.jpg</code> · every line is an event the server measured</figcaption>
+        </figure>
+      </li>
+
+      <li class="step">
+        <div class="step__text">
+          <span class="kicker"><span class="n">4</span>Review</span>
+          <h3>The review goes to the person the graph names.</h3>
+          <p>The engine rendered both candidate editions and assigned plan v1 to Noor, because the team’s <code>REVIEWED_BY</code> edge pointed at her. Noor approved it. The approval binds to one plan version and one execution fingerprint, and the fingerprint includes the current reviewer.</p>
+          <p class="facts"><b>Content hash</b> <span data-fact="plan.content_hash_short">44c0bbfc…2020</span><br><b>Plan v1 fingerprint</b> <span data-fact="plan.v1.fingerprint_short">c746cf89…559f</span></p>
+        </div>
+        <figure class="shot">
+          <a href="assets/screens/04-review.jpg"><img src="assets/screens/04-review.jpg" width="1920" height="1080" loading="lazy" decoding="async" alt="The Review step: both corrected finding cards, the proposal status going from Proposed to Returned for review, and the content hash."></a>
+          <figcaption>Review · <code>04-review.jpg</code> · the finished case shows the package Sam later approved; plan v1 had the same bytes</figcaption>
+        </figure>
+      </li>
+
+      <li class="step">
+        <div class="step__text">
+          <span class="kicker"><span class="n">5</span>Authority change</span>
+          <h3>The rota moves from Noor to Sam.</h3>
+          <p>The operator replaces one edge: <code>(Operations Review)-[:REVIEWED_BY]-&gt;(Sam Oyelaran)</code>. No evidence changes and no candidate byte changes. Ownership is untouched too: Sam owns the memo, and that never gave Sam any review authority.</p>
+          <p class="facts"><b>Context revision</b> <span data-fact="rev.authority">3 → 4</span></p>
+        </div>
+        <figure class="shot">
+          <a href="assets/screens/05-authority.jpg"><img src="assets/screens/05-authority.jpg" width="1920" height="1080" loading="lazy" decoding="async" alt="The Authority step: Operations Review REVIEWED_BY Noor Haddad struck through, REVIEWED_BY Sam Oyelaran current."></a>
+          <figcaption>Authority · <code>05-authority.jpg</code> · one edge decides whose approval counts</figcaption>
+        </figure>
+      </li>
+
+      <li class="step">
+        <div class="step__text">
+          <span class="kicker"><span class="n">6</span>Refusal</span>
+          <h3>Noor tries to issue plan v1. The server refuses.</h3>
+          <p>Release re-reads the graph before it writes anything. Noor’s approval is still recorded and still valid as a record of what she approved, but she no longer holds the review, so it authorizes nothing. Plan v1 is marked superseded with <code>refused_action: RELEASE</code>.</p>
+        </div>
+        <figure class="response" aria-label="The recorded refusal">
+          <span class="req">POST /plans/plan-case-dispatch-b09-b11-v1/release · as Noor · <span class="st">HTTP 409</span></span>
+<pre>{
+  "code": "<span data-fact="refusal.code">AUTHORITY_CHANGED</span>",
+  "detail": "<span data-fact="refusal.detail">the approval was recorded under a reviewer who no longer holds this case</span>",
+  "context": {
+    "approved_reviewer_id": "<span data-fact="refusal.approved_reviewer_id">person-noor</span>",
+    "current_reviewer_id": "<span data-fact="refusal.current_reviewer_id">person-sam</span>",
+    "context_revision": <span data-fact="refusal.context_revision">4</span>,
+    "plan_context_revision": <span data-fact="refusal.plan_context_revision">3</span>
+  }
+}</pre>
+          <figcaption>From <code>docs/evidence/run.jsonl</code>, step <code>noor_release</code>, abridged to the fields shown. The refusal has no screen of its own: it is an API answer.</figcaption>
+        </figure>
+      </li>
+
+      <li class="step">
+        <div class="step__text">
+          <span class="kicker"><span class="n">7</span>Fresh approval</span>
+          <h3>Same bytes, new authority, new approval.</h3>
+          <p>Refreshing the review re-stages plan v2 deterministically, with <span data-fact="refresh.model_calls">0</span> model calls. Its candidate hashes are identical to v1’s; its fingerprint is different, because the reviewer is. Sam approves v2.</p>
+          <p class="facts"><b>Plan v2 fingerprint</b> <span data-fact="plan.v2.fingerprint_short">1849d177…9520</span><br><b>Candidates</b> identical to plan v1</p>
+        </div>
+        <figure class="shot">
+          <a href="assets/screens/06-fresh-approval.jpg"><img src="assets/screens/06-fresh-approval.jpg" width="1920" height="1080" loading="lazy" decoding="async" alt="The Fresh approval step: plan v2 assigned to Sam Oyelaran with candidates identical to v1, and the recorded history of what happened to plan v1."></a>
+          <figcaption>Fresh approval · <code>06-fresh-approval.jpg</code> · v1 and v2 candidates side by side</figcaption>
+        </figure>
+      </li>
+
+      <li class="step">
+        <div class="step__text">
+          <span class="kicker"><span class="n">8</span>Release 2</span>
+          <h3>Sam issues the corrected editions.</h3>
+          <p>Release re-reads the context, regenerates, runs the independent verifier on the actual bytes and commits the whole package. Version 1 stays readable, marked superseded.</p>
+          <div class="paper changed">
+            <div class="doc"><span data-fact="doc.ops.title">Operations Cost Review</span><span>Version 2</span></div>
+            <p class="struck" data-fact="sentence.ops.before">South costs $0.40 less per parcel than North.</p>
+            <p class="sentence" data-fact="sentence.ops.after">South costs $0.40 more per parcel than North.</p>
+          </div>
+          <div class="paper changed">
+            <div class="doc"><span data-fact="doc.memo.title">South Expansion Memo</span><span>Version 2</span></div>
+            <p class="struck" data-fact="sentence.memo.before">South is 40 cents cheaper per parcel than North.</p>
+            <p class="sentence" data-fact="sentence.memo.after">South is 40 cents more expensive per parcel than North.</p>
+            <p class="meta">Proposal status: <span data-fact="decision.before">proposed</span> → <span data-fact="decision.after">returned for review</span></p>
+          </div>
+        </div>
+        <div>
+          <figure class="shot">
+            <a href="assets/screens/07-editions.jpg"><img src="assets/screens/07-editions.jpg" width="1920" height="1080" loading="lazy" decoding="async" alt="The Editions step: Version 2 of both reports with their hashes, the release receipt and Version 1 still readable."></a>
+            <figcaption>Editions · <code>07-editions.jpg</code> · release <span data-fact="release.2.id">rel-002-44c0bbfc</span></figcaption>
+          </figure>
+          <figure class="shot" style="margin-top:22px">
+            <a href="assets/screens/08-edition-reader.jpg"><img src="assets/screens/08-edition-reader.jpg" width="1920" height="1080" loading="lazy" decoding="async" alt="Both Version 2 editions open in the reader, each showing the struck-through old sentence above the corrected one."></a>
+            <figcaption>Reader · <code>08-edition-reader.jpg</code> · the files exactly as the server serves them</figcaption>
+          </figure>
+        </div>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- 4 · Ripple scene ---------------------------------------------------- -->
+<section class="scrolly" id="ripple" aria-labelledby="ripple-title">
+  <div class="scrolly__head">
+    <span class="kicker"><span class="n">03</span>The ripple</span>
+    <h2 id="ripple-title">Three edges move. One sentence turns over, twice.</h2>
+    <div class="prose">
+      <p>Scroll through the correction as the graph saw it. Each figure appears at the step where the change reaches it; nothing is interpolated between the before and after values.</p>
+    </div>
+  </div>
+  <div class="scrolly__steps" data-steps="ripple">
+    <article class="scrolly__step" data-step="0">
+      <span class="kicker">Before</span>
+      <h3>Version 1 is published.</h3>
+      <p>South has <span data-fact="south.before.n">7</span> batches with a mean of <span data-fact="south.before.mean">$3.60</span>. North has <span data-fact="north.n">4</span> at <span data-fact="north.mean">$4.00</span>. The finding says South is <span data-fact="magnitude.cents">40</span>¢ cheaper.</p>
+    </article>
+    <article class="scrolly__step" data-step="1">
+      <span class="kicker">Evidence</span>
+      <h3><span data-fact="correction.moved_list">B09, B10 and B11</span> move to Pilot.</h3>
+      <p>Three <code>ASSIGNED_TO</code> edges are replaced in one guarded write. The raw CSV stays byte-identical.</p>
+    </article>
+    <article class="scrolly__step" data-step="2">
+      <span class="kicker">Lane → comparison</span>
+      <h3>South is recomputed.</h3>
+      <p class="figure"><b>South</b> <span data-fact="south.before.mean">$3.60</span> over <span data-fact="south.before.n">7</span> → <b><span data-fact="south.after.mean">$4.40</span></b> over <span data-fact="south.after.n">4</span>. <b>North</b> stays at <span data-fact="north.mean">$4.00</span>.</p>
+      <p>The comparison is the first node the change reaches. Its direction reverses.</p>
+    </article>
+    <article class="scrolly__step" data-step="3">
+      <span class="kicker">Comparison → finding</span>
+      <h3>The shared finding flips.</h3>
+      <p>From “<span data-fact="magnitude.cents">40</span>¢ cheaper” to “<span data-fact="magnitude.cents">40</span>¢ more expensive”. Same magnitude, opposite relation: a check on the number alone would have missed it.</p>
+    </article>
+    <article class="scrolly__step" data-step="4">
+      <span class="kicker">Finding → every use</span>
+      <h3>Both reports and the proposal are out of date.</h3>
+      <p>Two registered occurrences, two owners, two wordings, and one decision whose recorded basis is now contradicted. The proposal is returned for review.</p>
+    </article>
+  </div>
+</section>
+
+<!-- 5 · Authority scene ------------------------------------------------- -->
+<section class="scrolly" id="authority" aria-labelledby="authority-title">
+  <div class="scrolly__head">
+    <span class="kicker"><span class="n">04</span>Authority is an edge</span>
+    <h2 id="authority-title">Move one edge and a valid approval stops counting.</h2>
+    <div class="prose">
+      <p>Nothing about the documents changes in this part of the story. Only who the team’s review rota names.</p>
+    </div>
+  </div>
+  <div class="scrolly__steps" data-steps="authority">
+    <article class="scrolly__step" data-step="0">
+      <span class="kicker">Approved</span>
+      <h3>Noor approves plan v1.</h3>
+      <p>The team’s <code>REVIEWED_BY</code> edge names <span data-fact="authority.before">Noor Haddad</span>. Her approval is bound to fingerprint <span class="mono" data-fact="plan.v1.fingerprint_short">c746cf89…559f</span>.</p>
+    </article>
+    <article class="scrolly__step" data-step="1">
+      <span class="kicker">The edge moves</span>
+      <h3><code>REVIEWED_BY</code> now points to <span data-fact="authority.after">Sam Oyelaran</span>.</h3>
+      <p>A guarded synthetic rota change. Context revision <span data-fact="rev.authority">3 → 4</span>. The candidate bytes are untouched.</p>
+    </article>
+    <article class="scrolly__step" data-step="2">
+      <span class="kicker">Refused</span>
+      <h3>Plan v1 loses its validity.</h3>
+      <p>Noor’s release attempt is refused with <span class="coral mono" data-fact="refusal.code">AUTHORITY_CHANGED</span>. Plan v1 is superseded; nothing is written.</p>
+    </article>
+    <article class="scrolly__step" data-step="3">
+      <span class="kicker">Fresh approval</span>
+      <h3>Plan v2: identical bytes, new fingerprint.</h3>
+      <p>Content hash <span class="mono" data-fact="plan.content_hash_short">44c0bbfc…2020</span> on both plans. Fingerprint <span class="mono" data-fact="plan.v2.fingerprint_short">1849d177…9520</span> on v2. Sam approves and issues <span data-fact="release.2.id">rel-002-44c0bbfc</span>.</p>
+    </article>
+  </div>
+</section>
+
+<!-- 6 · Check it yourself ----------------------------------------------- -->
+<section class="section" id="check" aria-labelledby="check-title">
+  <div class="inner split">
+    <div>
+      <span class="kicker"><span class="n">05</span>Check it yourself</span>
+      <h2 id="check-title">Don’t trust the page. Hash the files.</h2>
+      <div class="prose">
+        <p>Every edition the run issued is committed byte for byte in <a href="https://github.com/Asembris/ResultRipple/tree/main/docs/evidence">docs/evidence</a>, with its SHA-256 pinned in <code>SHA256SUMS</code>. Release IDs are derived from the candidate content, so a fresh run of the same story issues the same release ID and the same hashes.</p>
+        <p>The independent verifier (<code>backend/app/verify_artifacts.py</code>) imports nothing from the engine, the renderer or the templates. It re-reads the CSV, re-derives the arithmetic with <code>Fraction</code>, re-states the expected sentences from its own copy of the grammar and parses the issued HTML. You can run it on the committed bytes without FalkorDB.</p>
+      </div>
+    </div>
+    <div>
+      <table class="hashes">
+        <thead><tr><th scope="col">File</th><th scope="col">Release 1</th><th scope="col">Release 2</th></tr></thead>
+        <tbody>
+          <tr><td>Operations Cost Review</td><td class="h" data-label="R1"><span data-fact="edition.1.ops">5a670a69c226980325af01e1e0a5e407b473865950472a2412dcafa7f387cc26</span></td><td class="h" data-label="R2"><span data-fact="edition.2.ops">626caeddad2366b8ce869ff67feec4a6ba6ae0ac18826baa9c7a8e19b9670468</span></td></tr>
+          <tr><td>South Expansion Memo</td><td class="h" data-label="R1"><span data-fact="edition.1.memo">93c8b9dbaafd39b3523005b0d5bb0c71140eda57f869b0bf5d76668d26955a9c</span></td><td class="h" data-label="R2"><span data-fact="edition.2.memo">ea0a575c718eb11bfe9aca4fd97e52bf83dc741368f129169cfd190e8b9c33e0</span></td></tr>
+          <tr><td>Raw CSV</td><td class="h" colspan="2" data-label="Both"><span data-fact="dataset.sha">9f32c90244987bb5bc6c4fb4dbed63dd8f5ef9a0552f09bba62b3edd7ad2b6aa</span> <span class="muted">unchanged</span></td></tr>
+        </tbody>
+      </table>
+
+      <div class="terminal">
+        <div class="bar"><span>docs/evidence</span><span>pinned hashes</span></div>
+<pre><span class="c">sha256sum -c SHA256SUMS</span>
+editions/rel-001-c004be61/doc-operations-cost-review.html: <span class="ok">OK</span>
+editions/rel-001-c004be61/doc-south-expansion-memo.html: <span class="ok">OK</span>
+editions/rel-002-44c0bbfc/doc-operations-cost-review.html: <span class="ok">OK</span>
+editions/rel-002-44c0bbfc/doc-south-expansion-memo.html: <span class="ok">OK</span>
+../../backend/data/batches.csv: <span class="ok">OK</span></pre>
+      </div>
+
+      <div class="terminal">
+        <div class="bar"><span>Live receipt vs. committed copy</span><span>empty output = identical</span></div>
+<pre><span class="c">curl -s https://52-58-115-104.sslip.io/api/releases/rel-002-44c0bbfc/receipt \
+  | cmp - docs/evidence/api/receipt-rel-002.json</span></pre>
+      </div>
+
+      <dl class="receipt">
+        <div><dt>Release</dt><dd><span data-fact="release.2.id">rel-002-44c0bbfc</span><small>sequence 2 · issued by <span data-fact="release.2.issued_by">Sam Oyelaran</span></small></dd></div>
+        <div><dt>Verifier</dt><dd><span data-fact="release.2.checks">45 of 45</span><small>checks passed on the issued bytes</small></dd></div>
+        <div><dt>Membership</dt><dd><span data-fact="release.2.membership_short">83666619…cdc5</span><small>was <span data-fact="release.1.membership_short">92976722…5192</span></small></dd></div>
+      </dl>
+      <p class="muted" style="font-size:.95rem;margin:0">The receipt is the same file the live API serves at <a href="https://52-58-115-104.sslip.io/api/releases/rel-002-44c0bbfc/receipt"><code>/api/releases/rel-002-44c0bbfc/receipt</code></a>, saved in <code>docs/evidence/api/receipt-rel-002.json</code>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 7 · What I learned -------------------------------------------------- -->
+<section class="section" id="learned" aria-labelledby="learned-title">
+  <div class="inner">
+    <span class="kicker"><span class="n">06</span>What I learned</span>
+    <h2 id="learned-title">Seven things I would tell myself on day one.</h2>
+    <div class="prose">
+      <p>I built ResultRipple over three days in October 2026, with a frozen scope: one dataset, one finding, two reports, one proposal, one reviewer at a time. Small enough that every mistake below was mine to find, and visible enough that I could not argue my way around it.</p>
+    </div>
+
+    <ol class="lessons">
+      <li class="lesson">
+        <div><span class="n">LESSON 1</span><h3>A state change has to fit in one guarded query.</h3></div>
+        <div class="prose">
+          <p>I made a rule early: every mutation is a single parameterized Cypher query, with every existence and cardinality check before the first write clause. If any guard fails, the <code>WHERE</code> filters the row out and nothing is written. No cleanup code, no half states.</p>
+          <p>The place the rule almost slipped was the review refresh. Creating plan v2 and retiring plan v1 were two writes. A crash between them would have left two live versions of the same review, both approvable. The fix was to stop thinking of retirement as its own step and fold it into the query that creates the successor:</p>
+<pre class="cypher"><span class="k">OPTIONAL MATCH</span> (old:ReviewPlan {id:$old_id})-[:FOR_CASE]-&gt;(c)
+<span class="k">WHERE NOT</span> old.status <span class="k">IN</span> ['ISSUED', 'INVALIDATED', 'SUPERSEDED']
+<span class="k">WITH</span> c, reviewer, covered, collect(old) <span class="k">AS</span> superseded
+<span class="k">WHERE</span> <span class="hl">size(superseded) = $expected_superseded</span>
+<span class="k">CREATE</span> (p:ReviewPlan {id:$plan_id, version:$version, ...})
+<span class="cm">…</span>
+<span class="k">FOREACH</span> (old <span class="k">IN</span> superseded |
+    <span class="k">SET</span> old.status = 'SUPERSEDED', old.superseded_by = $plan_id)</pre>
+          <p>Thinking in single queries changed how I designed the graph: if a change can’t be expressed as one guarded statement, the model is usually missing a node or an edge.</p>
+          <p class="src">Commit <a href="https://github.com/Asembris/ResultRipple/commit/7528516">7528516</a> · <a href="https://github.com/Asembris/ResultRipple/blob/main/docs/queries.md">docs/queries.md</a></p>
+        </div>
+      </li>
+
+      <li class="lesson">
+        <div><span class="n">LESSON 2</span><h3>Authority is data, not a role flag.</h3></div>
+        <div class="prose">
+          <p>A role flag would have said Noor is a reviewer, which stayed true all along. What mattered was whether she held <em>this</em> case at the moment of release, and that is an edge: <code>(Team)-[:REVIEWED_BY]-&gt;(Person)</code>.</p>
+          <p>So the approval binds to an execution fingerprint that includes the current reviewer, alongside the candidate hashes, the context revision, the plan version and the prior release. Moving the edge leaves the content hash alone and changes the fingerprint. An approval can be perfectly valid as a record and still authorize nothing. I find that distinction the most useful idea in the project, and it only fell out because the reviewer lived in the graph rather than in a column on the user table.</p>
+          <p class="src"><a href="https://github.com/Asembris/ResultRipple/blob/main/docs/graph-model.md">docs/graph-model.md</a> · plans in <a href="https://github.com/Asembris/ResultRipple/tree/main/docs/evidence/api">docs/evidence/api</a></p>
+        </div>
+      </li>
+
+      <li class="lesson">
+        <div><span class="n">LESSON 3</span><h3>Describe the agent as what it is.</h3></div>
+        <div class="prose">
+          <p>It is tempting, in a hackathon, to let “the agent” stand for everything clever in the system. I tried to say exactly what it does: it reads the request into a typed intent (the goal, what the request asks to keep, a disposition, whether it is proposing an alternative) and it chooses to act or to ask one focused question. It has four typed tools and a principal that is not a <code>Person</code> in the graph, so every authority check fails for it by construction.</p>
+          <p>Code computes every figure and renders every sentence. The model never supplies a number. Being strict about that made the agent <em>more</em> interesting to explain, not less: in the recorded run its one real judgment was noticing that “keep South as the cheaper option” asked for a claim the evidence now contradicts, and proposing the alternative instead of quietly complying.</p>
+          <p class="src"><a href="https://github.com/Asembris/ResultRipple/blob/main/docs/agent.md">docs/agent.md</a> · <a href="https://github.com/Asembris/ResultRipple/blob/main/docs/evidence/api/agent-job.json">agent-job.json</a></p>
+        </div>
+      </li>
+
+      <li class="lesson">
+        <div><span class="n">LESSON 4</span><h3>A green CI can lie.</h3></div>
+        <div class="prose">
+          <p>Almost every backend test is an integration test against a real FalkorDB. When the graph wasn’t reachable, the fixtures skipped those tests, which was convenient on my laptop. In CI it meant the backend suite passed while FalkorDB was down: a run of skips is still a green tick.</p>
+          <p>The fix was small: skip locally, fail in CI. A run without a usable graph proves nothing, so in CI it now says so loudly. I trust a check more once I have seen it fail for the right reason.</p>
+          <p class="src">Commit <a href="https://github.com/Asembris/ResultRipple/commit/d2e9ed1">d2e9ed1</a> · <code>backend/tests/helpers.py</code></p>
+        </div>
+      </li>
+
+      <li class="lesson">
+        <div><span class="n">LESSON 5</span><h3>A test can encode the bug.</h3></div>
+        <div class="prose">
+          <p>An independent correctness audit, run in a separate session with no stake in my code, found that through the API alone the system could issue a memo whose decision block read <em>“Recorded basis: the linked finding above (no recorded basis).”</em> The receipt said the block had been checked, and was green.</p>
+          <p>The worst part: one of my own tests issued exactly that package and asserted it passed. It had encoded what I believed at the time, not what was true. The fix was a publication precondition in the engine, called before anything renders: no decision block without a recorded basis (<code>MISSING_DECISION_BASIS</code>), and the basis must be the claim placed beside it (<code>MISBOUND_PROVENANCE</code>). The test now records the basis first.</p>
+          <p class="src">Commit <a href="https://github.com/Asembris/ResultRipple/commit/8a4efb3">8a4efb3</a> · <code>test_one_occurrence_package_states_one</code></p>
+        </div>
+      </li>
+
+      <li class="lesson">
+        <div><span class="n">LESSON 6</span><h3>Record the demo so it can be checked.</h3></div>
+        <div class="prose">
+          <p>The video was recorded on a local run of the deployed build: the deployed commit, FalkorDB 6.0.2, a real NVIDIA call. Every take starts from a reset, and a local run let me do that without touching the site judges were reading. That raised a fair question: how would anyone know the footage shows the real product?</p>
+          <p>The answer had to be mechanical. The recorder refuses to finish a take unless Release 2 comes out as <span data-fact="release.2.id">rel-002-44c0bbfc</span>, the proposal is returned for review, and both edition hashes match production byte for byte. On screen, a take clock shows the real position in the uncut take, speed-ups carry a speed chip, cuts say what they skipped, and the pointer is drawn only where the recorder dispatched input.</p>
+          <p class="src">The same hashes are in the <a href="#check">table above</a>.</p>
+        </div>
+      </li>
+
+      <li class="lesson">
+        <div><span class="n">LESSON 7</span><h3>Make the live site read-only for visitors.</h3></div>
+        <div class="prose">
+          <p>A demo you can break is a demo the next judge never sees. Without signing in, the live site shows the finished case: every read works, and every change is refused by the server, not merely hidden in the interface. One visitor’s correction or reset would otherwise rewrite the story for everyone after them, and a small single host has no rate limit to protect its agent budget.</p>
+          <p>The refusals are still there to try. The <a href="https://github.com/Asembris/ResultRipple#quickstart">Quickstart</a> generates local passcodes for every demo identity: sign in as Ari and try to approve, or tell the agent it already has permission. It changes nothing, because no tool exists through which it could act on that.</p>
+          <p class="src">Commit <a href="https://github.com/Asembris/ResultRipple/commit/b7982ae">b7982ae</a></p>
+        </div>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- 8 · What's real ----------------------------------------------------- -->
+<section class="section" id="real" aria-labelledby="real-title">
+  <div class="inner">
+    <span class="kicker"><span class="n">07</span>What’s real, exactly</span>
+    <h2 id="real-title">What is real, and what is staged.</h2>
+    <ul class="real">
+      <li><b>Data</b>Every organization, person and number is fictional demo setup: 15 synthetic batches in <code>backend/data/batches.csv</code>.</li>
+      <li><b>Graph and model</b>Real. FalkorDB 6.0.2 holds the state; the agent made a real call to the NVIDIA-hosted model, with recorded usage and timing.</li>
+      <li><b>The evidence run</b>A script drove the human steps through the API: sign-ins, correction, approvals, the reviewer change and releases. The agent call in the middle was real.</li>
+      <li><b>The video</b>Footage of a local run of the deployed build, with scripted input. Its edition hashes match production.</li>
+      <li><b>The voice</b>The demo voiceover was generated with ElevenLabs.</li>
+      <li><b>This page</b>Every node, edge, label and figure in the scenes is read from <code>blog/data/story.json</code>, which a script builds from <code>docs/evidence</code>.</li>
+    </ul>
+    <p class="disclosure">Development assistance: ChatGPT was used for product design discussion, planning and code review; Claude Code was used for implementation, testing and deployment operations; independent audits were run in separate Claude sessions. Architecture, verification and submission decisions were reviewed and made by the project author. The demo voiceover was generated with ElevenLabs.</p>
+  </div>
+</section>
+
+<!-- 9 · Known limits ---------------------------------------------------- -->
+<section class="section" id="limits" aria-labelledby="limits-title">
+  <div class="inner split">
+    <div>
+      <span class="kicker"><span class="n">08</span>Known limits</span>
+      <h2 id="limits-title">What it does not do.</h2>
+      <div class="prose"><p>The full list is in the README’s <a href="https://github.com/Asembris/ResultRipple#limitations">Limitations</a>.</p></div>
+    </div>
+    <ul class="limits">
+      <li><strong>Only registered blocks are checked.</strong> Finding cards and the typed decision-status block are verified; narrative outside them is not assessed. A hash proves which bytes were issued, not that the dispatch note was right.</li>
+      <li><strong>No separation of duties.</strong> Sam is the new reviewer and also owns the memo Sam approves. Authority comes only from the team’s <code>REVIEWED_BY</code> edge.</li>
+      <li><strong>Demo passcodes are a sandbox gate</strong>, not enterprise authentication: no accounts, rotation, multi-factor step or rate limits.</li>
+      <li><strong>No editions while FalkorDB is down.</strong> An edition is served only through the path and hash its release recorded in the graph, so reads return 503 until the graph answers.</li>
+      <li><strong>The commit is not a distributed transaction.</strong> It is a local filesystem protocol plus one guarded graph write, so the API runs one worker.</li>
+      <li><strong>The model’s interpretation is fallible.</strong> That is why the raw request stays beside the typed goal, and a human must acknowledge any alternative.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- 10 · FAQ ------------------------------------------------------------ -->
+<section class="section" id="faq" aria-labelledby="faq-title">
+  <div class="inner split">
+    <div>
+      <span class="kicker"><span class="n">09</span>Questions judges ask</span>
+      <h2 id="faq-title">Fair questions.</h2>
+    </div>
+    <div class="faq">
+      <details>
+        <summary>Isn’t the dataset small?</summary>
+        <div class="prose">
+          <p>Yes, on purpose. Fifteen batches, three lanes, one comparison: small enough that every figure can be derived by hand and pinned in a test (North 1600/4 = 400¢; South 2520/7 = 360¢, then 1760/4 = 440¢). The hard part of the problem is not volume. It is knowing every registered use of one result, and who may approve its correction today. A bigger dataset would make the demo look busier without making that part harder to see.</p>
+          <p>The four-batch minimum is a declared demo policy, not a significance test, and the comparison is descriptive, not a causal savings estimate.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Is the agent just a classifier?</summary>
+        <div class="prose">
+          <p>Partly, and I would rather say so. Its output is a typed intent and a choice between acting and asking, which is classification-shaped. But it gets there by investigating with real tools against the live graph (<code>inspect_impact</code>, then <code>stage_review</code> in the recorded run), and it has to notice when a request conflicts with the evidence and propose the alternative, or ask a focused question when the request is ambiguous.</p>
+          <p>What it deliberately is not: a calculator, a writer of factual sentences, or an approver. Those boundaries are enforced by tools and by the graph, not by prompting.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Why FalkorDB?</summary>
+        <div class="prose">
+          <p>Because every question the product has to answer is a path: lane → comparison → claim → occurrence → document, and decision → team → reviewer. Those are short, fixed, parameterized traversals, and FalkorDB answers them fresh on every request, so there is no cached affected-file list to go stale. The authority rule only works because the reviewer is an edge that a release can re-read at the moment it commits.</p>
+          <p>It also kept the stack small: one graph, persisted with AOF and <code>appendfsync always</code> on a named volume, and no second store to keep in sync.</p>
+        </div>
+      </details>
+      <details>
+        <summary>What stops the model from approving its own plan?</summary>
+        <div class="prose">
+          <p>There is no tool through which it could. Its principal is not a <code>Person</code> node, approval requires the currently assigned reviewer, and roles resolve server-side from signed, expiring, <code>HttpOnly</code> sessions. Telling it that it has permission changes nothing.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Why not just re-run the report?</summary>
+        <div class="prose">
+          <p>Re-running gives you a new number. It does not tell you which already-published sentences, in which documents, by which owners, state the old one, or which pending decision used it, or who may sign off. Those are relationships, and that is what the graph is for.</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- 11 · Video ---------------------------------------------------------- -->
+<section class="section" id="video" aria-labelledby="video-title">
+  <div class="inner">
+    <span class="kicker"><span class="n">10</span>The video</span>
+    <h2 id="video-title">The same story at normal speed.</h2>
+    <a class="video" href="https://youtu.be/rnEBSMolZmA" rel="noopener" aria-label="Watch the ResultRipple demo on YouTube (107 seconds, opens YouTube)">
+      <img src="assets/video-poster.jpg" width="1600" height="900" loading="lazy" decoding="async" alt="ResultRipple. When evidence changes, every report that relied on it is corrected, by the right person.">
+      <span class="play"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg>Watch on YouTube · 107 s</span>
+    </a>
+    <p class="video-note">The poster is a still from the video. Nothing loads from YouTube until you click.</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="inner">
+    <div>
+      <a class="wordmark" href="#top">Result<em>Ripple</em></a>
+      WeMakeDevs × FalkorDB Graph Hacks 2026 · Track 3, Company Brain<br>
+      All organizational data is fictional demo setup.
+    </div>
+    <div>
+      <a href="https://52-58-115-104.sslip.io">Live workspace</a> · <a href="https://github.com/Asembris/ResultRipple">Repository</a> · <a href="https://youtu.be/rnEBSMolZmA">Demo video</a><br>
+      Code under the <a href="https://github.com/Asembris/ResultRipple/blob/main/LICENSE">MIT License</a> · fonts under the SIL OFL 1.1
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
