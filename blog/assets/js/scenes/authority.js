@@ -77,8 +77,10 @@ export function mount(container, story, { reduced }) {
     // step 2: plan v1's approval stops counting
     const refused = s >= 1.6;
     g.tone(I.plan1, refused ? 'coral' : 'sage');
+    // On a phone, once v2 is in view, v1 keeps only its title and refusal; the panel above still shows its fingerprint.
+    const compact = container.clientWidth < 700 && s >= 2.25;
     g.label(I.plan1, refused
-      ? { sub: planSub(p1, 'approval no longer valid'), tag: [story.refusal.code, 'coral'] }
+      ? { sub: compact ? '' : planSub(p1, 'approval no longer valid'), tag: [story.refusal.code, 'coral'] }
       : { sub: planSub(p1, 'approved by ' + p1.approved_by), tag: ['APPROVED · ' + upper(p1.approved_by), 'sage'] });
     g.edge(I.plan1, I.before, { reveal: 1, tone: refused ? 'coral' : 'sage', op: 0.6, dash: refused, wave: wave(s, 1.15, 1.6, true) });
     if (up(1.6)) g.flash(I.plan1, 'coral');

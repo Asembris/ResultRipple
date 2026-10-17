@@ -220,7 +220,7 @@ h2 em, h3 em { color: var(--amber); }
 @media (min-width: 960px) { .scrolly__fallback { padding-left: max(30rem, calc((100vw - var(--wide)) / 2 + 28rem)); } }
 @media (max-width: 700px) { .scrolly__fallback { align-items: flex-start; padding-top: 16px; height: 58%; } }
 .hero__fallback { position: absolute; right: 0; top: 50%; transform: translateY(-50%); width: min(1150px, 78%); height: auto; opacity: .7; }
-@media (max-width: 899px) { .hero__fallback { width: 150%; right: -30%; opacity: .3; } }
+@media (max-width: 899px) { .hero__fallback { position: absolute; top: 50%; right: auto; left: 50%; transform: translate(-50%, -50%); width: 100%; opacity: .85; } }
 .is-live .scrolly__fallback, .is-live .hero__fallback { opacity: 0; transition: opacity .6s var(--ease); pointer-events: none; }
 .scrolly__steps { position: relative; z-index: 2; padding: 8px var(--gutter) 40px; max-width: var(--wide); margin: 0 auto; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .scrolly__stage + .scrolly__steps { display: block; max-width: none; margin-top: calc(-100svh + 56px); padding: 30svh var(--gutter) 40svh; pointer-events: none; }
@@ -301,21 +301,25 @@ h2 em, h3 em { color: var(--amber); }
 .gl-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .gl-label { position: absolute; left: 0; top: 0; opacity: 0; white-space: nowrap; will-change: transform, opacity; text-shadow: 0 1px 14px rgba(8, 7, 6, .95), 0 0 3px rgba(8, 7, 6, .9); }
 .gl-label[data-anchor=left] { text-align: right; }
-.gl-label[data-anchor=below] { text-align: center; }
+.gl-label[data-anchor=below], .gl-label[data-anchor=above] { text-align: center; }
 .gl-label__t { font: 500 13px/1.15 var(--sans); color: var(--ink); letter-spacing: .01em; }
 .gl-label--lane .gl-label__t { font: 400 24px/1 var(--serif); letter-spacing: 0; }
 .gl-label--comparison .gl-label__t, .gl-label--finding .gl-label__t, .gl-label--document .gl-label__t, .gl-label--decision .gl-label__t { font: 400 19px/1.05 var(--serif); letter-spacing: 0; }
 .gl-label--batch .gl-label__t { font: 500 11px/1 var(--mono); color: #A39A8C; letter-spacing: .02em; }
 .gl-label__s { font: 400 11.5px/1.4 var(--mono); color: #A39A8C; margin-top: 4px; white-space: pre-line; }
 .gl-label__g { font: 600 10.5px/1 var(--mono); letter-spacing: .08em; padding: 4px 6px 3px; border-radius: 2px; margin-top: 6px; width: max-content; border: 1px solid; }
-.gl-label[data-anchor=below] .gl-label__g { margin-left: auto; margin-right: auto; }
+.gl-label[data-anchor=below] .gl-label__g, .gl-label[data-anchor=above] .gl-label__g { margin-left: auto; margin-right: auto; }
 .gl-label[data-anchor=left] .gl-label__g { margin-left: auto; }
 .gl-label__g[data-tone=coral] { color: var(--coral); border-color: #E3876A66; background: #E3876A14; }
 .gl-label__g[data-tone=sage] { color: var(--sage); border-color: #9CCBAE66; background: #9CCBAE14; }
 .gl-label__g[data-tone=amber] { color: var(--amber); border-color: #E8B06466; background: #E8B06414; }
+/* On narrow screens the hero graph gets its own band below the text instead of sitting behind it. */
 @media (max-width: 899px) {
+  .hero { flex-direction: column; align-items: stretch; padding-bottom: 64px; }
+  .hero__scene { position: relative; inset: auto; order: 2; height: min(78vw, 340px); margin: 36px calc(-1 * var(--gutter)) 0; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); background: var(--bg-deep); }
+  .hero__scene::after { background: linear-gradient(90deg, var(--bg-deep) 0%, transparent 12%, transparent 88%, var(--bg-deep) 100%); }
   .hero .gl-labels { display: none; }
-  .hero .gl-canvas { opacity: .5; }
+  .hero__foot { position: static; order: 3; margin-top: 16px; }
 }
 .gl-edge-tag { position: absolute; left: 0; top: 0; opacity: 0; white-space: nowrap; font: 500 10.5px/1 var(--mono); letter-spacing: .06em; color: #8C8476; text-shadow: 0 0 8px var(--bg), 0 0 3px var(--bg); }
 @media (max-width: 700px) {

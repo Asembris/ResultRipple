@@ -7,9 +7,37 @@ import { ids, laneSub, comparisonSub, findingSub, statusWord, upper } from '../s
 
 export function mount(container, story, { reduced }) {
   const I = ids(story);
+  // The headline block, measured from its text (not its boxes), relative to the
+  // scene. On desktop the graph is framed to its right, and any node or label
+  // still behind it, or left of it, is dimmed or hidden.
+  const copy = document.querySelector('.hero__copy');
+  let avoid = null;
+  function measure() {
+    avoid = null;
+    if (!copy || container.clientWidth < 900) return;
+    const c = container.getBoundingClientRect();
+    const range = document.createRange();
+    let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+    for (const el of copy.children) {
+      range.selectNodeContents(el);
+      for (const q of range.getClientRects()) {
+        if (!q.width) continue;
+        l = Math.min(l, q.left); t = Math.min(t, q.top); r = Math.max(r, q.right); b = Math.max(b, q.bottom);
+      }
+    }
+    // Everything from the left edge to the end of the text column, full height.
+    if (r > l) avoid = { left: -1e4, top: -1e4, w: 1e4 + r - c.left + 20, h: 2e4 };
+  }
+  measure();
+  const ro = new ResizeObserver(measure);
+  ro.observe(container);
+  if (copy) ro.observe(copy);
+  if (document.fonts) document.fonts.ready.then(measure);
+
   const g = createGraph({
     container, story, reduced, dprCap: 1.5,
     labels: (def) => def.type !== 'batch',
+    avoid: () => avoid,
   });
 
   // ---- final state, straight from the story ----
@@ -55,12 +83,19 @@ export function mount(container, story, { reduced }) {
   ];
   const PERIOD = 9;
   function frame(t) {
-    const w = container.clientWidth;
-    const wide = w >= 900;
+    const W = container.clientWidth;
+    // Desktop: world x 1.0 (just left of the shared finding) lands right of the
+    // text, and the reviewers' labels (to about x 17.5) end at the right edge.
+    let x = 3.2, w = 27, h = 13.5;
+    if (avoid) {
+      const from = avoid.left + avoid.w + 4, to = W - 24;
+      const scale = Math.max(20, (to - from) / 16.5);
+      w = W / scale; h = 1; x = 1.0 + (W / 2 - from) / scale;
+    }
     g.frame({
-      x: wide ? 4.6 : 3.2, y: -0.6,
-      w: wide ? 31 : 27, h: wide ? 15.5 : 16,
-      shift: wide ? 0.12 : 0,
+      x, y: avoid ? -0.9 : -0.8,
+      w, h,
+      shift: 0,
       yaw: reduced ? -0.12 : -0.12 + Math.sin(t * 0.07) * 0.1,
       pitch: reduced ? 0.06 : 0.06 + Math.sin(t * 0.05) * 0.03,
     });
@@ -78,6 +113,6 @@ export function mount(container, story, { reduced }) {
   return {
     start: () => g.start(),
     stop: () => g.stop(),
-    dispose: () => g.dispose(),
+    dispose: () => { ro.disconnect(); g.dispose(); },
   };
 }

@@ -192,7 +192,7 @@ export function createGraph(opts) {
     const label = makeLabel(def, labelLayer, showLabel(def));
     nodes.set(def.id, {
       def, group, mats, sprite, spin, hs, label,
-      color: TONE.ivory.clone(), tColor: TONE.ivory.clone(), vis: 1, tVis: 1, flash: 0, flashColor: TONE.ivory.clone(), dim: 1, tDim: 1,
+      color: TONE.ivory.clone(), tColor: TONE.ivory.clone(), vis: 1, tVis: 1, flash: 0, flashColor: TONE.ivory.clone(), dim: 1, tDim: 1, avoid: 1, tAvoid: 1,
     });
   }
 
@@ -276,9 +276,10 @@ export function createGraph(opts) {
       n.color.lerp(n.tColor, k);
       n.vis += (n.tVis - n.vis) * k;
       n.dim += (n.tDim - n.dim) * k;
+      n.avoid += (n.tAvoid - n.avoid) * k;
       n.flash = Math.max(0, n.flash - dt * 1.4);
       const c = scratch.copy(n.color).lerp(n.flashColor, n.flash * 0.6);
-      const a = n.vis * n.dim;
+      const a = n.vis * n.dim * n.avoid;
       n.mats.forEach(({ m, op }) => { m.color.copy(c); m.opacity = op * a; });
       n.sprite.material.color.copy(c);
       n.sprite.material.opacity = (0.42 + n.flash * 0.5) * a;
@@ -289,7 +290,8 @@ export function createGraph(opts) {
     edges.forEach((e) => {
       rebuild(e);
       e.color.lerp(e.tColor, k); e.op += (e.tOp - e.op) * k;
-      const da = nodes.get(e.def.from).dim * nodes.get(e.def.to).dim;
+      const nf = nodes.get(e.def.from), nt = nodes.get(e.def.to);
+      const da = nf.dim * nt.dim * Math.max(nf.avoid, nt.avoid);
       e.u.uColor.value.copy(e.color); e.u.uOpacity.value = e.op * da; e.u.uTime.value = reduced ? 0 : t;
       e.mesh.visible = e.u.uReveal.value > 0.002 && da > 0.01;
     });
@@ -297,26 +299,72 @@ export function createGraph(opts) {
     placeLabels(W, H);
   }
 
+  // Labels prefer their type's side, but a label that would be pushed back by
+  // an edge of the view, cover another node's marker or overlap a label already
+  // placed tries the other sides. A label inside the caller's "avoid" rectangle
+  // (the hero's text block) is hidden, and its node dimmed.
+  const FLEX = new Set(['comparison', 'finding', 'document', 'decision', 'team', 'person', 'plan']);
+  const SIDES = ['right', 'left', 'below', 'above'];
+  const rectFor = (side, x, y, g, w, h) => ({
+    left: side === 'left' ? x - g - w : side === 'right' ? x + g : x - w / 2,
+    top: side === 'below' ? y + g : side === 'above' ? y - g - h : y - h / 2,
+    w, h,
+  });
+  const inside = (px, py, r, pad) => px > r.left - pad && px < r.left + r.w + pad && py > r.top - pad && py < r.top + r.h + pad;
+  const overlap = (a, b) => Math.max(0, Math.min(a.left + a.w, b.left + b.w) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.top + a.h, b.top + b.h) - Math.max(a.top, b.top));
   function placeLabels(W, H) {
     const bounds = { left: 6, top: 6, right: W - 6, bottom: H - 6 };
+    const avoid = opts.avoid ? opts.avoid() : null;
+    const points = [];
+    nodes.forEach((n) => {
+      n.sx = null;
+      if (n.vis * n.dim < 0.05) return;
+      tmp.copy(n.group.position).project(camera);
+      if (tmp.z > 1) return;
+      n.sx = (tmp.x * 0.5 + 0.5) * W; n.sy = (-tmp.y * 0.5 + 0.5) * H;
+      n.tAvoid = avoid && inside(n.sx, n.sy, avoid, 0) ? 0.3 : 1;
+      points.push(n);
+    });
+    const placed = [];
     nodes.forEach((n) => {
       const L = n.label;
+      const hide = () => { if (L.shown) { L.el.style.opacity = '0'; L.shown = false; } };
       if (!L.on) return;
       const a = n.vis * n.dim * L.alpha;
-      if (a < 0.02) { if (L.shown) { L.el.style.opacity = '0'; L.shown = false; } return; }
-      tmp.copy(n.group.position);
-      if (n.def.type === 'lane') tmp.x -= 4.3; // left of the batch column, as in the app
-      tmp.project(camera);
-      if (tmp.z > 1) return;
-      const x = (tmp.x * 0.5 + 0.5) * W, y = (-tmp.y * 0.5 + 0.5) * H;
+      if (a < 0.02 || n.sx === null) return hide();
+      let x = n.sx, y = n.sy;
+      if (n.def.type === 'lane') {
+        tmp.copy(n.group.position); tmp.x -= 4.3; tmp.project(camera); // left of the batch column, as in the app
+        x = (tmp.x * 0.5 + 0.5) * W; y = (-tmp.y * 0.5 + 0.5) * H;
+      }
       // A node outside the view keeps its label hidden instead of pinned to an edge.
-      if (x < -8 || x > W + 8 || y < -8 || y > H + 8) { if (L.shown) { L.el.style.opacity = '0'; L.shown = false; } return; }
+      if (x < -8 || x > W + 8 || y < -8 || y > H + 8) return hide();
       if (!L.w) { L.w = L.el.offsetWidth; L.h = L.el.offsetHeight; }
-      const g = GAP[n.def.type], anchor = L.anchor;
-      let left = anchor === 'left' ? x - g - L.w : anchor === 'below' ? x - L.w / 2 : x + g;
-      let top = anchor === 'below' ? y + g : y - L.h / 2;
-      left = Math.max(bounds.left, Math.min(bounds.right - L.w, left));
-      top = Math.max(bounds.top, Math.min(bounds.bottom - L.h, top));
+      const g = GAP[n.def.type];
+      const score = (side) => {
+        const r = rectFor(side, x, y, g, L.w, L.h);
+        let sc = Math.max(0, bounds.left - r.left) + Math.max(0, r.left + r.w - bounds.right)
+          + Math.max(0, bounds.top - r.top) + Math.max(0, r.top + r.h - bounds.bottom);
+        for (const m of points) if (m !== n && m.def.type !== 'batch' && inside(m.sx, m.sy, r, 12)) sc += 400;
+        for (const q of placed) sc += overlap(r, q) / 6;
+        return sc;
+      };
+      let side = L.side || L.anchor;
+      if (FLEX.has(n.def.type)) {
+        let best = side, bestScore = score(side);
+        for (const cand of [L.anchor, ...SIDES]) {
+          if (cand === best) continue;
+          const sc = score(cand);
+          if (sc + 1 < bestScore) { best = cand; bestScore = sc; }
+        }
+        side = best;
+      }
+      if (side !== L.side) { L.side = side; L.el.dataset.anchor = side; }
+      const r = rectFor(side, x, y, g, L.w, L.h);
+      if (avoid && overlap(r, avoid) > 0) return hide();
+      const left = Math.max(bounds.left, Math.min(bounds.right - L.w, r.left));
+      const top = Math.max(bounds.top, Math.min(bounds.bottom - L.h, r.top));
+      placed.push({ left, top, w: L.w, h: L.h });
       L.el.style.transform = `translate3d(${left.toFixed(1)}px,${top.toFixed(1)}px,0)`;
       L.el.style.opacity = a.toFixed(3);
       L.shown = true;
@@ -409,7 +457,7 @@ function makeLabel(def, layer, on) {
   const anchor = ANCHOR[def.type];
   el.dataset.anchor = anchor;
   if (!on) el.style.display = 'none';
-  return { el, t, s, g, anchor, on, alpha: 1, w: 0, h: 0, shown: false, key: '' };
+  return { el, t, s, g, anchor, side: null, on, alpha: 1, w: 0, h: 0, shown: false, key: '' };
 }
 
 function setLabel(L, txt) {
