@@ -327,7 +327,7 @@
       <h2 id="check-title">Don’t trust the page. Hash the files.</h2>
       <div class="prose">
         <p>Every edition the run issued is committed byte for byte in <a href="https://github.com/Asembris/ResultRipple/tree/main/docs/evidence">docs/evidence</a>, with its SHA-256 pinned in <code>SHA256SUMS</code>. Release IDs are derived from the candidate content, so a fresh run of the same story issues the same release ID and the same hashes.</p>
-        <p>The independent verifier (<code>backend/app/verify_artifacts.py</code>) imports nothing from the engine, the renderer or the templates. It re-reads the CSV, re-derives the arithmetic with <code>Fraction</code>, re-states the expected sentences from its own copy of the grammar and parses the issued HTML. You can run it on the committed bytes without FalkorDB.</p>
+        <p>The independent verifier (<code>backend/app/verify_artifacts.py</code>) imports nothing from the engine, the renderer or the templates. It re-reads the CSV, re-derives the arithmetic with <code>Fraction</code>, re-states the expected sentences from its own copy of the grammar and parses the issued HTML. <code>blog/tools/reverify.py</code> feeds it the recorded plan v2 scope, the raw CSV and the two committed editions, with no FalkorDB and no network. Its <code>--tamper</code> flag changes one word in the memo first, because a verifier that cannot fail proves nothing.</p>
       </div>
     </div>
     <div>
@@ -348,6 +348,18 @@ editions/rel-001-c004be61/doc-south-expansion-memo.html: <span class="ok">OK</sp
 editions/rel-002-44c0bbfc/doc-operations-cost-review.html: <span class="ok">OK</span>
 editions/rel-002-44c0bbfc/doc-south-expansion-memo.html: <span class="ok">OK</span>
 ../../backend/data/batches.csv: <span class="ok">OK</span></pre>
+      </div>
+
+      <div class="terminal">
+        <div class="bar"><span>repository root</span><span>the independent verifier, re-run</span></div>
+<pre><span class="c">python blog/tools/reverify.py</span>
+release rel-002-44c0bbfc: <span class="ok">45 of 45 checks passed</span>
+receipt recorded: 45 of 45, ok=True
+
+<span class="c">python blog/tools/reverify.py --tamper</span>
+release rel-002-44c0bbfc: <span class="bad">43 of 45 checks passed</span> (tampered memo)
+  <span class="bad">FAILED</span> doc-south-expansion-memo:hash_matches_approved
+  <span class="bad">FAILED</span> doc-south-expansion-memo:memo-finding-cost:assertion</pre>
       </div>
 
       <div class="terminal">
