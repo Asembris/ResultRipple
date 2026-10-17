@@ -14,6 +14,7 @@ reviewer issue the new editions.**
 
 [![Live demo](https://img.shields.io/badge/Live_demo-open_the_workspace-E8B064?style=for-the-badge)](https://52-58-115-104.sslip.io)
 [![Watch demo](https://img.shields.io/badge/Watch_demo-YouTube-6B6459?style=for-the-badge)](https://youtu.be/rnEBSMolZmA)
+[![Read the write-up](https://img.shields.io/badge/Read_the_write--up-GitHub_Pages-C4BBAC?style=for-the-badge)](https://asembris.github.io/ResultRipple/)
 [![Graph Hacks 2026](https://img.shields.io/badge/Graph_Hacks_2026-Track_3_%C2%B7_Company_Brain-9CCBAE?style=for-the-badge)](https://www.wemakedevs.org/hackathons/falkordb)
 
 Recorded on a local run of the deployed build, with real FalkorDB and NVIDIA inference; edition hashes match production.
@@ -91,7 +92,7 @@ Sam owns the memo and also becomes its reviewer. That is allowed only because th
 before the change Sam could not approve. The product does not enforce separation of
 duties (see [Limitations](#limitations)).
 
-The live site is read-only for visitors so the finished case stays intact for every judge. To sign in and try the refusals yourself, run the Quickstart: it generates local passcodes for every demo identity. Ari's passcode does not authenticate anyone as
+The live site is read-only for visitors so the finished case stays intact for every judge. To sign in and try the refusals yourself, run the [Quickstart](#quickstart): it generates local passcodes for every demo identity. Ari's passcode does not authenticate anyone as
 Noor. A reviewer who is not the current one is refused. Telling the agent it already has
 permission changes nothing, because no tool exists through which it could act on that.
 
