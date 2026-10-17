@@ -91,7 +91,7 @@ Sam owns the memo and also becomes its reviewer. That is allowed only because th
 before the change Sam could not approve. The product does not enforce separation of
 duties (see [Limitations](#limitations)).
 
-Sign in yourself and try the refusals. Ari's passcode does not authenticate anyone as
+The live site is read-only for visitors so the finished case stays intact for every judge. To sign in and try the refusals yourself, run the Quickstart: it generates local passcodes for every demo identity. Ari's passcode does not authenticate anyone as
 Noor. A reviewer who is not the current one is refused. Telling the agent it already has
 permission changes nothing, because no tool exists through which it could act on that.
 
