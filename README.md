@@ -37,6 +37,9 @@ Recorded on a local run of the deployed build, with real FalkorDB and NVIDIA inf
 
 ## What to look at in 2 minutes
 
+Track 3, Company Brain: people, teams, documents and decisions in one graph; every
+decision traced back to its source evidence, and kept current when that evidence changes.
+
 Open **<https://52-58-115-104.sslip.io>**. Without signing in you get the read-only view
 of a finished case: every read works and every change is refused by the server. The top
 bar steps through the story, and the graph on the left is drawn only from live API
@@ -145,6 +148,19 @@ disposition to propose, or it asks one focused question when the request is ambi
 It never computes a number, writes a card sentence, narrows the scope, approves or
 releases. Its principal is not a `Person` in the graph, so every authority check fails for
 it by construction.
+
+**What each tool reads from the graph**
+
+| Tool | Graph pattern it reads | What that decides |
+| --- | --- | --- |
+| `get_case_context` | `CorrectionCase-[:CHANGES_BATCH]->Batch`, `CorrectionCase-[:AFFECTS_LANE]->Lane`, the `Workspace` revision, and the package inventory `Occurrence-[:IN_DOCUMENT]->Document`, `Occurrence-[:OF_CLAIM]->Claim-[:BASED_ON]->Comparison`, `Document-[:OWNED_BY]->Person` | The case status, the changed batches and lanes, the context revision to inspect against, and the declared scope: which documents and how many registered occurrences. |
+| `inspect_impact` | `Dataset-[:HAS_BATCH]->Batch-[:ASSIGNED_TO]->Lane`; `Comparison-[:LEFT_SIDE\|RIGHT_SIDE]->Lane`; the impact traversal `CorrectionCase-[:AFFECTS_LANE]->Lane<-[:LEFT_SIDE\|RIGHT_SIDE]-Comparison<-[:BASED_ON]-Claim<-[:OF_CLAIM]-Occurrence-[:IN_DOCUMENT]->Document`; the inventory above; `Decision-[:BASED_ON]->Claim`, `Decision-[:OWNED_BY]->Team-[:REVIEWED_BY]->Person` | Refuses a stale revision. Feeds the current memberships to the engine's exact arithmetic, lists every registered occurrence with its document and owner, and names the recorded decision basis and the current reviewer. A provenance gap leaves only `request_clarification` permitted. Returns the inspection id staging requires. |
+| `stage_review` | `ReviewPlan-[:FOR_CASE]->CorrectionCase` for idempotency and the next version, then the same evidence, inventory, traversal and authority reads as `inspect_impact`, re-read under the workspace lock | Refuses staging if the revision moved since the inspection (`STALE_INSPECTION`) or if the traversal and the inventory name different occurrences (`IMPACT_SCOPE_MISMATCH`). Assigns the plan to whoever `REVIEWED_BY` names now and writes it `-[:COVERS]->` every registered occurrence. |
+| `request_clarification` | `CorrectionCase` and its `CHANGES_BATCH` batches, the package inventory, and every `Person` | Which ids the question may cite (anything else is `UNKNOWN_CONTEXT_ID`), and whether the case is still in a state that may wait; then it records the question on the case. |
+
+The agent never writes Cypher: it chooses among these four fixed, parameterized tools,
+and every id it passes back (the case, the inspection, a focus occurrence, a
+clarification's context ids) must be one the tools returned, or the call is refused.
 
 Each job is bounded to 4 model turns, 6 tool calls and 25 seconds, and each model call to
 4096 completion tokens.
